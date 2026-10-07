@@ -69,22 +69,31 @@ so pressing a key several times shows one popup, not a stack.
 ### As a package (port)
 
 The port is in `port/sysutils/xfce4-bsdthinkpad-plugin`; it fetches the
-release (tag `v0.2.0`) from GitHub. It needs the ports framework
-(`/usr/ports/Mk`), e.g. a shallow clone of the ports tree:
+release (tag `v0.2.0`) from GitHub. It is not in the FreeBSD ports tree, but
+it does not need to be: a port directory works from anywhere, as long as the
+ports framework (`/usr/ports/Mk`) is installed. As root:
 ```
+# 1. the ports framework, if there is no /usr/ports yet (a shallow clone, ~1 GB)
 git clone --depth 1 https://git.FreeBSD.org/ports.git /usr/ports
+
+# 2. these sources
+git clone https://github.com/wugq/xfce4-bsdthinkpad-plugin
+cd xfce4-bsdthinkpad-plugin/port/sysutils/xfce4-bsdthinkpad-plugin
+
+# 3. build the package and install it
+make install-missing-packages   # dependencies as binary packages (pkg)
+make package                    # work/pkg/xfce4-bsdthinkpad-plugin-0.2.0.pkg
+pkg install work/pkg/xfce4-bsdthinkpad-plugin-0.2.0.pkg
+make clean
 ```
-Then, from a checkout of these sources, as root:
-```
-cd port/sysutils/xfce4-bsdthinkpad-plugin
-make package          # work/pkg/xfce4-bsdthinkpad-plugin-0.2.0.pkg
-pkg install work/pkg/xfce4-bsdthinkpad-plugin-0.2.0.pkg    # or "make install"
-```
-pkg installs the dependencies (libnotify, acpi_call, polkit, consolekit2,
-xfce4-panel). Like any package, it does not change system configuration;
-run `bsdthinkpad-setup` once (below). `pkg delete xfce4-bsdthinkpad-plugin` removes it again
-(`pkg autoremove` then also removes dependencies nothing else needs, such as
-acpi_call).
+Without `make install-missing-packages`, the ports framework would build the
+missing dependencies from source.
+
+(`git` itself comes from `pkg install git`.) The dependencies are libnotify,
+acpi_call, polkit, consolekit2 and xfce4-panel. Like any package, it does
+not change system configuration; run `bsdthinkpad-setup` once (below).
+`pkg delete xfce4-bsdthinkpad-plugin` removes it again (`pkg autoremove` then
+also removes dependencies nothing else needs, such as acpi_call).
 
 ### Without the port
 
