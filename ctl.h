@@ -3,7 +3,7 @@
  *
  * Copyright (c) 2026, wugq
  *
- * ctl.h -- the logic behind tposd-panel, without any UI (GLib only)
+ * ctl.h -- the logic behind bsdthinkpad-plugin, without any UI (GLib only)
  *
  * A Ctl keeps the state of the controls, reads it from the hardware (hw.h)
  * and carries out requests.  Requests that need root (the speaker mute and
@@ -13,8 +13,8 @@
  * only renders ctl_state() and forwards user actions to the ctl_set_*()
  * functions.
  */
-#ifndef TPOSD_CTL_H
-#define TPOSD_CTL_H
+#ifndef BSDTHINKPAD_CTL_H
+#define BSDTHINKPAD_CTL_H
 
 #include <glib.h>
 

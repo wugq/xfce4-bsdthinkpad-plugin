@@ -1,13 +1,13 @@
-tposd adds what the XFCE PulseAudio plugin and power manager can not do on
-FreeBSD ThinkPads:
+xfce4-bsdthinkpad-plugin adds what the XFCE PulseAudio plugin
+(xfce4-pulseaudio-plugin) and power manager can not do on FreeBSD ThinkPads:
 
-- tposd, a watcher started with the desktop session: notifications for
+- bsdthinkpad, a watcher started with the desktop session: notifications for
   brightness, the speaker mute key (muted in hardware by the embedded
   controller) and the microphone mute key, and it keeps both mute LEDs in
   step, whoever changed the mute.
-- tposd-panel, an XFCE panel plugin: brightness and OSS "pcm" sliders,
+- bsdthinkpad-plugin, an XFCE panel plugin: brightness and OSS "pcm" sliders,
   speaker and microphone switches; scroll on its icon for brightness.
-- tposd-mute-led, a small root helper for the LEDs, run through pkexec
+- bsdthinkpad-mute-led, a small root helper for the LEDs, run through pkexec
   with a polkit policy that allows the user at the console.
 - a devd rule for the microphone mute key, which arrives only as an ACPI
   event.

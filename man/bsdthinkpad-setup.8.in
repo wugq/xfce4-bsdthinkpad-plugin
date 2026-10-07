@@ -4,17 +4,17 @@
 .\" Copyright (c) 2026, wugq
 .\"
 .Dd October 7, 2026
-.Dt TPOSD-SETUP 8
+.Dt BSDTHINKPAD-SETUP 8
 .Os
 .Sh NAME
-.Nm tposd-setup
-.Nd configure the system for tposd
+.Nm bsdthinkpad-setup
+.Nd configure the system for bsdthinkpad
 .Sh SYNOPSIS
 .Nm
 .Op Fl n
 .Sh DESCRIPTION
 Installing
-.Xr tposd 1
+.Xr bsdthinkpad 1
 does not change the system configuration;
 .Nm
 does.
@@ -59,10 +59,10 @@ Only show what would be done.
 .Sh EXIT STATUS
 .Ex -std
 .Sh SEE ALSO
+.Xr bsdthinkpad 1 ,
 .Xr pkexec 1 ,
-.Xr tposd 1 ,
 .Xr loader.conf 5 ,
 .Xr pam.conf 5 ,
+.Xr bsdthinkpad-mute-led 8 ,
 .Xr devd 8 ,
-.Xr mixer 8 ,
-.Xr tposd-mute-led 8
+.Xr mixer 8

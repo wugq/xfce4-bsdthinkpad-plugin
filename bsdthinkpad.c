@@ -3,7 +3,7 @@
  *
  * Copyright (c) 2026, wugq
  *
- * tposd -- on-screen display for ThinkPad keys on FreeBSD (XFCE and others)
+ * bsdthinkpad -- on-screen display for ThinkPad keys on FreeBSD (XFCE)
  *
  * Shows desktop notifications for what the XFCE pulseaudio plugin and power
  * manager can not see on FreeBSD:
@@ -11,27 +11,28 @@
  *   brightness       /dev/backlight/backlight0 (backlight(9)), with a bar
  *   speaker mute     the embedded controller mutes the speaker in hardware;
  *                    only the sysctl dev.acpi_ibm.0.mute changes, and the
- *                    key sends no event.  tposd turns the mute LED on/off
- *                    (tposd-mute-led via pkexec), which acpi_ibm(4) does not
+ *                    key sends no event.  bsdthinkpad turns the mute LED
+ *                    on/off (bsdthinkpad-mute-led via pkexec), which
+ *                    acpi_ibm(4) does not
  *   microphone mute  the "rec" level of every mixer (mixer(3), see hw.h); the
- *                    LED follows it, whoever changed it (key, panel, tposd)
+ *                    LED follows it, whoever changed it (key, panel, command)
  *
- * polkit may refuse tposd's pkexec, because ConsoleKit can not always read
- * a process's environment (kern.proc.env fails with ENOMEM for a few percent
+ * polkit may refuse bsdthinkpad's pkexec, because ConsoleKit can not always
+ * read a process's environment (kern.proc.env fails with ENOMEM for a few percent
  * of processes, depending on where ASLR puts the stack; see
- * docs/kern-proc-env-bug.md), and so does not find the session.  tposd
+ * docs/kern-proc-env-bug.md), and so does not find the session.  bsdthinkpad
  * checks this at start and logs it.
  *
- * The watcher logs to syslog(3) (ident "tposd", /var/log/messages).
+ * The watcher logs to syslog(3) (ident "bsdthinkpad", /var/log/messages).
  *
  * Volume is left to the pulseaudio panel plugin (keys and popups).
  *
  * Usage:
- *   tposd [-n] [-i ms]          watch and notify (run from autostart)
- *   tposd brightness [+|-]N     change brightness, e.g. +10, -10, 50
- *   tposd pcm [+|-]N            change the OSS "pcm" level of the default
+ *   bsdthinkpad [-n] [-i ms]          watch and notify (run from autostart)
+ *   bsdthinkpad brightness [+|-]N     change brightness, e.g. +10, -10, 50
+ *   bsdthinkpad pcm [+|-]N            change the OSS "pcm" level of the default
  *                               mixer (pulseaudio does not manage it)
- *   tposd micmute [on|off|toggle]
+ *   bsdthinkpad micmute [on|off|toggle]
  *                               show or change the microphone mute (used
  *                               by the devd rule of the mic-mute key)
  */
@@ -108,7 +109,7 @@ show(NotifyNotification **n, const char *summary, const char *body,
 	}
 }
 
-/* ---- the watch loop ------------------------------------------------------ */
+/* ---- the watch loop ----------------------------------------------------- */
 
 static gboolean
 poll_once(gpointer data)
@@ -133,8 +134,8 @@ poll_once(gpointer data)
 		led("speaker", hw);
 		if (!first)
 			show(&n_mute, hw ? "Speaker muted" : "Speaker on",
-			    hw ? "Sound is off" : "Sound is on",
-			    hw ? "audio-volume-muted" : "audio-volume-high", -1);
+			    hw ? "Sound is off" : "Sound is on", hw ?
+			    "audio-volume-muted" : "audio-volume-high", -1);
 		last_hwmute = hw;
 	}
 
@@ -171,8 +172,8 @@ check_env_readable(void)
 	 */
 	if (sysctl(mib, 4, NULL, &len, NULL, 0) == 0 || errno != ENOMEM)
 		return;
-	syslog(LOG_WARNING, "the kernel can not read this process's environment "
-	    "(kern.proc.env: ENOMEM, an ASLR-dependent FreeBSD bug), so polkit "
+	syslog(LOG_WARNING, "the kernel can not read this process's "
+	    "environment (kern.proc.env: ENOMEM, an ASLR-dependent FreeBSD bug), so polkit "
 	    "may refuse pkexec and the mute LEDs may not follow; "
 	    "logging out and in again usually helps");
 }
@@ -182,8 +183,8 @@ watch(void)
 {
 	GMainLoop *loop;
 
-	openlog("tposd", LOG_PID | LOG_PERROR, LOG_USER);
-	if (!notify_init("tposd")) {
+	openlog("bsdthinkpad", LOG_PID | LOG_PERROR, LOG_USER);
+	if (!notify_init("bsdthinkpad")) {
 		syslog(LOG_ERR, "cannot connect to the notification service");
 		exit(1);
 	}
@@ -198,7 +199,7 @@ watch(void)
 	g_main_loop_run(loop);
 }
 
-/* ---- tposd brightness|pcm [+|-]N ------------------------------------------ */
+/* ---- bsdthinkpad brightness|pcm [+|-]N ---------------------------------- */
 
 /*
  * "+N" / "-N" change the value by N, "N" sets it.  Prints the value read
@@ -226,7 +227,7 @@ set_cmd(const char *what, const char *arg, int (*get)(void), int (*set)(int))
 	return 0;
 }
 
-/* tposd micmute [on|off|toggle]: prints the (new) state, "on" = muted */
+/* bsdthinkpad micmute [on|off|toggle]: prints the (new) state, "on" = muted */
 static int
 micmute_cmd(const char *arg)
 {
@@ -256,10 +257,10 @@ static void
 usage(void)
 {
 	fprintf(stderr,
-	    "usage: tposd [-n] [-i interval-ms]\n"
-	    "       tposd brightness [+|-]N\n"
-	    "       tposd pcm [+|-]N\n"
-	    "       tposd micmute [on|off|toggle]\n"
+	    "usage: bsdthinkpad [-n] [-i interval-ms]\n"
+	    "       bsdthinkpad brightness [+|-]N\n"
+	    "       bsdthinkpad pcm [+|-]N\n"
+	    "       bsdthinkpad micmute [on|off|toggle]\n"
 	    "  -n  do not drive the mute LEDs\n"
 	    "  -i  poll interval in milliseconds (default 200)\n");
 	exit(2);
@@ -287,7 +288,8 @@ main(int argc, char *argv[])
 		case 'i':
 			interval_ms = (int)strtonum(optarg, 50, 60000, &errstr);
 			if (errstr != NULL)
-				errx(2, "-i %s: %s (50..60000 ms)", optarg, errstr);
+				errx(2, "-i %s: %s (50..60000 ms)", optarg,
+				    errstr);
 			break;
 		default:
 			usage();

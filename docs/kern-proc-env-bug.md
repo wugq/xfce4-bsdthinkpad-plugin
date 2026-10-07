@@ -1,6 +1,6 @@
 # FreeBSD: `kern.proc.env` fails with ENOMEM for some processes
 
-Found while debugging tposd on a ThinkPad A475 with FreeBSD 15.1-RELEASE-p4
+Found while debugging bsdthinkpad on a ThinkPad A475 with FreeBSD 15.1-RELEASE-p4
 (amd64, GENERIC), 2026-10-07.
 
 **Status:** not reported upstream yet. To do: file a bug at
@@ -10,10 +10,10 @@ Found while debugging tposd on a ThinkPad A475 with FreeBSD 15.1-RELEASE-p4
 
 Reading another process's environment fails for a few percent of processes:
 ```
-$ procstat -e $(pgrep -x tposd)
+$ procstat -e $(pgrep -x bsdthinkpad)
 procstat: sysctl(kern.proc.env): Cannot allocate memory
   PID COMM             ENVIRONMENT
-41375 tposd            -
+41375 bsdthinkpad            -
 ```
 The process itself is fine: its own `environ` is complete, and the strings on
 its stack (where `ps_strings` points) are intact when read with gdb.
@@ -22,10 +22,10 @@ Consequence on the desktop: ConsoleKit2 finds the session of a process by
 reading `XDG_SESSION_COOKIE` from its environment. When the read fails, polkit
 does not consider the process part of the active session:
 ```
-$ pkcheck --action-id org.tposd.mute-led --process $(pgrep -x tposd)
+$ pkcheck --action-id org.bsdthinkpad.mute-led --process $(pgrep -x bsdthinkpad)
 Not authorized.
 ```
-In the session where this was found, both `tposd` and `Thunar --daemon`
+In the session where this was found, both `bsdthinkpad` and `Thunar --daemon`
 (started by xfce4-session's autostart) were affected; the other session
 processes were not.
 
@@ -102,7 +102,7 @@ mapping marked `D` in `procstat -v`):
 | failing | 0xe2 (226) bytes below the stack top | ENOMEM |
 | working | 0x7fa (2042) bytes below the stack top | `A=1` |
 
-For tposd: `ps_strings` at stack top − 0x28, `DISPLAY=:0.0` (the last string)
+For bsdthinkpad: `ps_strings` at stack top − 0x28, `DISPLAY=:0.0` (the last string)
 169 bytes below the top.
 
 `kern.proc.args` is not affected in practice: it is answered from the cached
@@ -119,28 +119,28 @@ For tposd: `ps_strings` at stack top − 0x28, `DISPLAY=:0.0` (the last string)
   that a chunk cut short at a page boundary is not taken as the end of the
   string.
 
-## Effect on tposd
+## Effect on bsdthinkpad
 
-tposd sets the speaker mute LED through pkexec, because the speaker mute key
+bsdthinkpad sets the speaker mute LED through pkexec, because the speaker mute key
 sends no event that devd could act on: the embedded controller handles it and
 only `dev.acpi_ibm.0.mute` changes (checked on the A475 by listening on
 `/var/run/devd.pipe`: the mic-mute key sends `notify=0x1b`, the speaker mute
-key nothing). If tposd is one of the affected processes, polkit refuses it and
+key nothing). If bsdthinkpad is one of the affected processes, polkit refuses it and
 the LED does not follow the key for that session. Logging out and in again
 gives it a new chance.
 
 The mic-mute key does send an ACPI event and is handled by devd(8)
-(`etc/devd/tposd.conf`, `libexec/tposd-key`), which runs as root and is not
+(`etc/devd/bsdthinkpad.conf`, `libexec/bsdthinkpad-key`), which runs as root and is not
 affected.
 
-tposd logs it at start (`grep tposd /var/log/messages`):
+bsdthinkpad logs it at start (`grep bsdthinkpad /var/log/messages`):
 ```
-tposd[PID]: the kernel can not read this process's environment (kern.proc.env: ENOMEM, ...)
+bsdthinkpad[PID]: the kernel can not read this process's environment (kern.proc.env: ENOMEM, ...)
 ```
 
 ### Not done yet: re-exec
 
-tposd could check at start whether `kern.proc.env` of its own pid fails with
+bsdthinkpad could check at start whether `kern.proc.env` of its own pid fails with
 ENOMEM and, if so, `execv()` itself once more: the new exec gets a new random
 stack gap, and in ~95% of cases a readable environment. Left out for now
 because it is a workaround for a kernel bug and hard to test (it needs an

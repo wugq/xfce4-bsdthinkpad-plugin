@@ -2,9 +2,9 @@
 Type=X-XFCE-PanelPlugin
 Encoding=UTF-8
 Name=ThinkPad Controls
-Comment=Brightness, microphone, speaker mute and sound card level (tposd)
+Comment=Brightness, microphone, speaker mute and sound card level on FreeBSD
 Icon=display-brightness-symbolic
-X-XFCE-Module=tposd-panel
+X-XFCE-Module=bsdthinkpad-plugin
 X-XFCE-Internal=false
 X-XFCE-Unique=true
 X-XFCE-API=2.0

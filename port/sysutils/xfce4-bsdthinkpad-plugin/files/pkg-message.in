@@ -1,0 +1,29 @@
+[
+{ type: install
+  message: <<EOM
+bsdthinkpad needs some system configuration, which installing does not change.
+Run once, as root:
+
+    bsdthinkpad-setup        # or "bsdthinkpad-setup -n" to see the steps first
+
+It loads acpi_ibm and acpi_call (now and in /boot/loader.conf), gives
+pkexec's PAM service a session stack without pam_lastlog (whose "Last
+login" message makes pkexec abort; the original is kept as
+%%PREFIX%%/etc/pam.d/polkit-1.orig), restarts devd for the mic-mute rule
+and sets the OSS pcm level to 1.00.
+
+Then log out and in again (bsdthinkpad starts with the session) and add the
+panel item "ThinkPad Controls".  Bind the brightness keys to
+"bsdthinkpad brightness +10" / "bsdthinkpad brightness -10" in
+Settings -> Keyboard -> Application Shortcuts; leave the volume keys to the
+PulseAudio plugin.
+EOM
+}
+{ type: remove
+  message: <<EOM
+bsdthinkpad-setup's changes stay: acpi_ibm_load/acpi_call_load in
+/boot/loader.conf and %%PREFIX%%/etc/pam.d/polkit-1 (original in
+polkit-1.orig).
+EOM
+}
+]

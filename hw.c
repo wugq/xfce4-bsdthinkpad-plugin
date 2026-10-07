@@ -29,7 +29,7 @@ clamp(int v)
 	return v < 0 ? 0 : (v > 100 ? 100 : v);
 }
 
-/* ---- brightness: backlight(9) ------------------------------------------ */
+/* ---- brightness: backlight(9) ------------------------------------------- */
 
 int
 hw_get_brightness(void)
@@ -214,7 +214,7 @@ hw_set_micmute(int on)
 	return rec_mute(on != 0);
 }
 
-/* ---- mute LEDs: root helper via pkexec ------------------------------------ */
+/* ---- mute LEDs: root helper via pkexec ---------------------------------- */
 
 int
 hw_set_led(const char *which, int on)

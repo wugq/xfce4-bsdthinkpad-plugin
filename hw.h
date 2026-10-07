@@ -3,18 +3,19 @@
  *
  * Copyright (c) 2026, wugq
  *
- * hw.h -- the hardware tposd and tposd-panel read and change (FreeBSD)
+ * hw.h -- the hardware bsdthinkpad and the panel plugin read and change
+ * (FreeBSD)
  *
  * All functions return -1 when the value is not available (no backlight,
  * no acpi_ibm, no such mixer channel); callers just skip that item.
  */
-#ifndef TPOSD_HW_H
-#define TPOSD_HW_H
+#ifndef BSDTHINKPAD_HW_H
+#define BSDTHINKPAD_HW_H
 
 #define HW_BACKLIGHT_DEV	"/dev/backlight/backlight0"
 
 #ifndef MUTE_LED_HELPER
-#define MUTE_LED_HELPER		"/usr/local/libexec/tposd-mute-led"
+#define MUTE_LED_HELPER		"/usr/local/libexec/bsdthinkpad-mute-led"
 #endif
 
 /* Screen brightness 0..100, backlight(9) */
@@ -54,7 +55,8 @@ int	hw_set_micmute(int on);
 
 /*
  * Set the speaker or microphone mute LED through the root helper
- * (pkexec + polkit policy org.tposd.mute-led).  which: "speaker" or "mic".
+ * (pkexec + polkit policy org.bsdthinkpad.mute-led).
+ * which: "speaker" or "mic".
  * Returns 0 on success.
  */
 int	hw_set_led(const char *which, int on);

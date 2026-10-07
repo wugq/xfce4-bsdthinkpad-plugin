@@ -4,13 +4,13 @@
 .\" Copyright (c) 2026, wugq
 .\"
 .Dd October 7, 2026
-.Dt TPOSD-MUTE-LED 8
+.Dt BSDTHINKPAD-MUTE-LED 8
 .Os
 .Sh NAME
-.Nm tposd-mute-led
+.Nm bsdthinkpad-mute-led
 .Nd turn a ThinkPad mute LED on or off
 .Sh SYNOPSIS
-.Nm @LIBEXECDIR@/tposd-mute-led
+.Nm @LIBEXECDIR@/bsdthinkpad-mute-led
 .Cm speaker | mic
 .Cm 0 | 1
 .Sh DESCRIPTION
@@ -21,7 +21,7 @@ utility turns the speaker or microphone mute LED of a ThinkPad off
 or on
 .Pq Cm 1 .
 It is the only part of
-.Xr tposd 1
+.Xr bsdthinkpad 1
 that needs root, and it accepts nothing but these two forms.
 .Bl -tag -width speaker
 .It Cm speaker
@@ -44,22 +44,22 @@ Sets the sysctl
 .Va dev.acpi_ibm.0.mic_led .
 .El
 .Pp
-.Xr tposd 1
+.Xr bsdthinkpad 1
 and its panel plugin run
 .Nm
 through
 .Xr pkexec 1 .
 The polkit action
-.Dq org.tposd.mute-led
+.Dq org.bsdthinkpad.mute-led
 allows this without a password for the user at the console (the active
 local session) and refuses it for remote and inactive sessions.
 .Xr devd 8
 runs it directly, through
-.Pa @LIBEXECDIR@/tposd-key ,
+.Pa @LIBEXECDIR@/bsdthinkpad-key ,
 for the microphone mute key.
 .Sh FILES
 .Bl -tag -width Ds -compact
-.It Pa @PREFIX@/share/polkit-1/actions/org.tposd.mute-led.policy
+.It Pa @PREFIX@/share/polkit-1/actions/org.bsdthinkpad.mute-led.policy
 the polkit action.
 .El
 .Sh EXIT STATUS
@@ -68,13 +68,13 @@ the polkit action.
 Check whether the firmware has the method and try it, as root:
 .Bd -literal -offset indent
 # acpidump -dt | grep "Method (SSMS"
-# @LIBEXECDIR@/tposd-mute-led speaker 1
-# @LIBEXECDIR@/tposd-mute-led speaker 0
+# @LIBEXECDIR@/bsdthinkpad-mute-led speaker 1
+# @LIBEXECDIR@/bsdthinkpad-mute-led speaker 0
 .Ed
 .Sh SEE ALSO
+.Xr bsdthinkpad 1 ,
 .Xr pkexec 1 ,
-.Xr tposd 1 ,
 .Xr acpi_ibm 4 ,
 .Xr acpi_call 8 ,
-.Xr devd 8 ,
-.Xr tposd-setup 8
+.Xr bsdthinkpad-setup 8 ,
+.Xr devd 8

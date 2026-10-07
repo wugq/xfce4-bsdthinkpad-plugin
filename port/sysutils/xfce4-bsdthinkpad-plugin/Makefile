@@ -1,15 +1,15 @@
-PORTNAME=	tposd
-DISTVERSION=	0.1.1
+PORTNAME=	xfce4-bsdthinkpad-plugin
+DISTVERSION=	0.2.0
 CATEGORIES=	sysutils xfce
 # No download site yet: put the tarball from "make dist" (top directory of
-# the tposd sources) into ${DISTDIR}, then "make makesum".  Once the sources
+# the sources) into ${DISTDIR}, then "make makesum".  Once the sources
 # are on GitHub, replace this with
 #	USE_GITHUB=	yes
 #	GH_ACCOUNT=	<account>
 MASTER_SITES=	# none
 
 MAINTAINER=	wugq.dev@gmail.com
-COMMENT=	On-screen display and XFCE panel plugin for ThinkPad keys
+COMMENT=	XFCE panel plugin and OSD for ThinkPad keys on FreeBSD
 
 LICENSE=	BSD2CLAUSE
 LICENSE_FILE=	${WRKSRC}/LICENSE
@@ -30,8 +30,8 @@ MAKE_ARGS=	PREFIX=${PREFIX} LOCALBASE=${LOCALBASE}
 SUB_FILES=	pkg-message
 
 post-install:
-	${STRIP_CMD} ${STAGEDIR}${PREFIX}/bin/tposd \
-		${STAGEDIR}${PREFIX}/libexec/tposd-mute-led \
-		${STAGEDIR}${PREFIX}/lib/xfce4/panel/plugins/libtposd-panel.so
+	${STRIP_CMD} ${STAGEDIR}${PREFIX}/bin/bsdthinkpad \
+		${STAGEDIR}${PREFIX}/libexec/bsdthinkpad-mute-led \
+		${STAGEDIR}${PREFIX}/lib/xfce4/panel/plugins/libbsdthinkpad-plugin.so
 
 .include <bsd.port.mk>

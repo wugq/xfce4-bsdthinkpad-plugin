@@ -3,8 +3,8 @@
  *
  * Copyright (c) 2026, wugq
  *
- * tposd-panel -- XFCE panel plugin for what the pulseaudio plugin can not do
- * on FreeBSD:
+ * bsdthinkpad-plugin -- XFCE panel plugin for what the pulseaudio plugin can
+ * not do on FreeBSD:
  *
  *   brightness   slider (scroll on the panel icon too)
  *   PCM (OSS)    slider: the OSS "pcm" level of the default mixer
@@ -63,7 +63,7 @@ typedef struct {
 	char		*tip;		/* current tooltip text */
 } Panel;
 
-/* ---- view: state -> widgets ------------------------------------------------------ */
+/* ---- view: state -> widgets --------------------------------------------- */
 
 static void on_brightness(GtkRange *, Panel *);
 static void on_pcm(GtkRange *, Panel *);
@@ -210,7 +210,7 @@ render(const CtlState *s, gpointer data)
 	p->shown_valid = TRUE;
 }
 
-/* ---- user actions -> ctl ---------------------------------------------------------- */
+/* ---- user actions -> ctl ------------------------------------------------ */
 
 static void
 on_brightness(GtkRange *range, Panel *p)
@@ -319,7 +319,7 @@ on_leave(GtkWidget *w, GdkEventCrossing *ev, Panel *p)
 	return FALSE;
 }
 
-/* ---- popup window ------------------------------------------------------------------- */
+/* ---- popup window ------------------------------------------------------- */
 
 static void
 popup_show(Panel *p)
@@ -424,7 +424,7 @@ on_popup_delete(GtkWidget *w, GdkEvent *ev, Panel *p)
 	return TRUE;
 }
 
-/* ---- building the widgets ------------------------------------------------------------ */
+/* ---- building the widgets ----------------------------------------------- */
 
 /*
  * Make a label as wide as the widest text it will show, so the popup does not
@@ -460,7 +460,8 @@ slider_row(GtkGrid *grid, int top, GtkSizeGroup *names, const char *icon,
 	GtkWidget *img = gtk_image_new_from_icon_name(icon, GTK_ICON_SIZE_MENU);
 	GtkWidget *row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
 
-	*scale = gtk_scale_new_with_range(GTK_ORIENTATION_HORIZONTAL, 0, 100, 1);
+	*scale = gtk_scale_new_with_range(GTK_ORIENTATION_HORIZONTAL, 0, 100,
+	    1);
 	gtk_scale_set_draw_value(GTK_SCALE(*scale), FALSE);
 	gtk_widget_set_size_request(*scale, 200, -1);
 	gtk_widget_set_hexpand(*scale, TRUE);
@@ -562,7 +563,7 @@ build_popup(Panel *p)
 	    p);
 }
 
-/* ---- plugin --------------------------------------------------------------------------- */
+/* ---- plugin ------------------------------------------------------------- */
 
 static gboolean
 on_size_changed(XfcePanelPlugin *plugin, gint size, Panel *p)
@@ -610,7 +611,8 @@ construct(XfcePanelPlugin *plugin)
 	/* Widgets exist now: the first "changed" renders everything */
 	p->ctl = ctl_new(render, p);
 
-	g_signal_connect(plugin, "size-changed", G_CALLBACK(on_size_changed), p);
+	g_signal_connect(plugin, "size-changed", G_CALLBACK(on_size_changed),
+	    p);
 	g_signal_connect(plugin, "free-data", G_CALLBACK(on_free), p);
 	gtk_widget_show_all(p->button);
 }

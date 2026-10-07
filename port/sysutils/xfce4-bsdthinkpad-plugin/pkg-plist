@@ -1,0 +1,12 @@
+bin/bsdthinkpad
+etc/devd/bsdthinkpad.conf
+etc/xdg/autostart/bsdthinkpad.desktop
+lib/xfce4/panel/plugins/libbsdthinkpad-plugin.so
+libexec/bsdthinkpad-key
+libexec/bsdthinkpad-mute-led
+sbin/bsdthinkpad-setup
+share/man/man1/bsdthinkpad.1.gz
+share/man/man8/bsdthinkpad-mute-led.8.gz
+share/man/man8/bsdthinkpad-setup.8.gz
+share/polkit-1/actions/org.bsdthinkpad.mute-led.policy
+share/xfce4/panel/plugins/bsdthinkpad.desktop

@@ -1,0 +1,23 @@
+#!/bin/sh
+# SPDX-License-Identifier: BSD-2-Clause
+#
+# bsdthinkpad-key -- the ThinkPad mic-mute key; run as root by devd(8), see
+# @PREFIX@/etc/devd/bsdthinkpad.conf
+#
+#   bsdthinkpad-key micmute   mic-mute key (ACPI IBM notify 0x1b): toggle the
+#                       microphone mute ("bsdthinkpad micmute", the recording
+#                       level of every mixer) and set its LED
+#
+# bsdthinkpad(1) shows the notification.  The speaker mute key sends no
+# event: the embedded controller handles it, and bsdthinkpad sets its LED.
+
+if [ "$1" != micmute ]; then
+	echo "usage: bsdthinkpad-key micmute" >&2
+	exit 2
+fi
+
+case $(@BINDIR@/bsdthinkpad micmute toggle) in
+on)	exec @LIBEXECDIR@/bsdthinkpad-mute-led mic 1 ;;
+off)	exec @LIBEXECDIR@/bsdthinkpad-mute-led mic 0 ;;
+*)	exit 1 ;;
+esac

@@ -3,7 +3,7 @@
  *
  * Copyright (c) 2026, wugq
  *
- * ctl.c -- the logic behind tposd-panel, without any UI (GLib only)
+ * ctl.c -- the logic behind bsdthinkpad-plugin, without any UI (GLib only)
  */
 
 #include <string.h>
@@ -22,14 +22,14 @@ struct Ctl {
 	gpointer	 data;
 };
 
-/* A running "pkexec tposd-mute-led" */
+/* A running "pkexec bsdthinkpad-mute-led" */
 typedef struct {
 	Ctl	*ctl;
 	guint	 watch_id;
 	int	 speaker;	/* the speaker request: clears want_speaker */
 } Run;
 
-/* ---- state ------------------------------------------------------------------ */
+/* ---- state -------------------------------------------------------------- */
 
 static void
 read_hw(Ctl *ctl)
@@ -95,7 +95,7 @@ ctl_state(Ctl *ctl)
 	return &ctl->state;
 }
 
-/* ---- root helper, asynchronously ---------------------------------------------- */
+/* ---- root helper, asynchronously ---------------------------------------- */
 
 static void
 run_done(GPid pid, gint status, gpointer data)
@@ -113,7 +113,7 @@ run_done(GPid pid, gint status, gpointer data)
 }
 
 /*
- * Start "pkexec tposd-mute-led which 0|1"; FALSE if it could not start.
+ * Start "pkexec bsdthinkpad-mute-led which 0|1"; FALSE if it could not start.
  * Never wait for it here: run synchronously from a GTK handler while the
  * popup held its grab, pkexec made the plugin crash (Xlib _XAllocID
  * assertion).
@@ -144,7 +144,7 @@ run_helper(Ctl *ctl, const char *which, int on, int speaker)
 	return TRUE;
 }
 
-/* ---- requests ------------------------------------------------------------------- */
+/* ---- requests ----------------------------------------------------------- */
 
 void
 ctl_set_brightness(Ctl *ctl, int value)
@@ -184,9 +184,9 @@ ctl_set_speaker_mute(Ctl *ctl, int mute)
 }
 
 /*
- * The mixer is ours to change; the LED needs root.  The tposd watcher sets
- * the LED too when it sees the change; that is harmless (same value), and
- * keeps the LED right when tposd does not run.
+ * The mixer is ours to change; the LED needs root.  The bsdthinkpad watcher
+ * sets the LED too when it sees the change; that is harmless (same value),
+ * and keeps the LED right when bsdthinkpad does not run.
  */
 void
 ctl_set_mic_mute(Ctl *ctl, int mute)
@@ -197,7 +197,7 @@ ctl_set_mic_mute(Ctl *ctl, int mute)
 	ctl_refresh(ctl);
 }
 
-/* ---- life -------------------------------------------------------------------------- */
+/* ---- life --------------------------------------------------------------- */
 
 Ctl *
 ctl_new(CtlChanged changed, gpointer data)

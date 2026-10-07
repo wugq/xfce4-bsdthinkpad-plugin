@@ -1,8 +1,9 @@
 #!/bin/sh
 # SPDX-License-Identifier: BSD-2-Clause
 #
-# tposd-setup -- the system configuration tposd needs; run once as root
-# after installing tposd (package, port or "make install").
+# bsdthinkpad-setup -- the system configuration xfce4-bsdthinkpad-plugin
+# needs; run once as root after installing it (package, port or
+# "make install").
 #
 # Installing does not change system configuration; this script does, and
 # says what it does:
@@ -14,7 +15,7 @@
 #     log out and in afterwards)
 #   - set the OSS "pcm" level of the default mixer to 1.00 and save it
 #
-# Usage: tposd-setup [-n]     -n: only show what would be done
+# Usage: bsdthinkpad-setup [-n]     -n: only show what would be done
 
 set -e
 
@@ -24,11 +25,11 @@ dry=
 if [ "$1" = "-n" ]; then
 	dry=echo
 elif [ -n "$1" ]; then
-	echo "usage: tposd-setup [-n]" >&2
+	echo "usage: bsdthinkpad-setup [-n]" >&2
 	exit 2
 fi
 if [ -z "$dry" ] && [ "$(id -u)" -ne 0 ]; then
-	echo "tposd-setup: run as root (or -n to only show the steps)" >&2
+	echo "bsdthinkpad-setup: run as root (or -n to only show the steps)" >&2
 	exit 1
 fi
 
@@ -51,7 +52,8 @@ fi
 
 step "devd: read the mic-mute rule"
 $dry service devd restart
-echo "    PulseAudio exits when devd restarts (module-devd-detect); log out and in"
+echo "    PulseAudio exits when devd restarts (module-devd-detect);" \
+    "log out and in"
 
 step "OSS pcm of the default mixer at 1.00, saved for the next boot"
 unit=$(sysctl -n hw.snd.default_unit)

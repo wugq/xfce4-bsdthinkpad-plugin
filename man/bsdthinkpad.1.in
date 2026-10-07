@@ -4,10 +4,10 @@
 .\" Copyright (c) 2026, wugq
 .\"
 .Dd October 7, 2026
-.Dt TPOSD 1
+.Dt BSDTHINKPAD 1
 .Os
 .Sh NAME
-.Nm tposd
+.Nm bsdthinkpad
 .Nd on-screen display for ThinkPad brightness and mute keys
 .Sh SYNOPSIS
 .Nm
@@ -35,7 +35,7 @@ watches the screen brightness, the speaker mute of the ThinkPad embedded
 controller and the microphone mute, and shows a desktop notification
 whenever one of them changes, whoever changed it.
 It is started with the desktop session by
-.Pa @PREFIX@/etc/xdg/autostart/tposd.desktop .
+.Pa @PREFIX@/etc/xdg/autostart/bsdthinkpad.desktop .
 .Pp
 It reads:
 .Bl -tag -width "microphone mute"
@@ -69,7 +69,7 @@ keeps the microphone mute LED in step with it.
 At start and on every change of the speaker or microphone mute,
 .Nm
 sets the mute LEDs with
-.Xr tposd-mute-led 8
+.Xr bsdthinkpad-mute-led 8
 through
 .Xr pkexec 1 .
 If that fails, it warns once and goes on.
@@ -93,9 +93,9 @@ percent, or set it to
 .Ar N
 percent without a sign, and print the new value.
 Bind the brightness keys to
-.Ql tposd brightness +10
+.Ql bsdthinkpad brightness +10
 and
-.Ql tposd brightness -10 .
+.Ql bsdthinkpad brightness -10 .
 .It Cm pcm Oo Cm + | Cm \- Oc Ns Ar N
 The same for the OSS
 .Dq pcm
@@ -111,14 +111,14 @@ or
 .Dq off .
 Without an argument, only print it.
 The mute LED follows through the watcher, or through
-.Pa @LIBEXECDIR@/tposd-key
+.Pa @LIBEXECDIR@/bsdthinkpad-key
 for the mic-mute key.
 .El
 .Pp
 The watcher logs to
 .Xr syslog 3
 with the identifier
-.Dq tposd :
+.Dq bsdthinkpad :
 a failing
 .Xr pkexec 1 ,
 a failing notification, and, at start, when the kernel can not read the
@@ -127,14 +127,14 @@ environment of the process
 which keeps ConsoleKit and so polkit from finding the session.
 .Sh FILES
 .Bl -tag -width Ds -compact
-.It Pa @PREFIX@/etc/devd/tposd.conf
+.It Pa @PREFIX@/etc/devd/bsdthinkpad.conf
 .Xr devd 8
 rule for the microphone mute key, which arrives only as an ACPI event.
-.It Pa @LIBEXECDIR@/tposd-key
+.It Pa @LIBEXECDIR@/bsdthinkpad-key
 run by this rule as root: runs
-.Ql tposd micmute toggle
+.Ql bsdthinkpad micmute toggle
 and sets the LED.
-.It Pa @PREFIX@/lib/xfce4/panel/plugins/libtposd-panel.so
+.It Pa @PREFIX@/lib/xfce4/panel/plugins/libbsdthinkpad-plugin.so
 the XFCE panel plugin
 .Dq ThinkPad Controls .
 .El
@@ -142,22 +142,22 @@ the XFCE panel plugin
 .Ex -std
 .Sh EXAMPLES
 Make the screen darker by 10 percent:
-.Dl $ tposd brightness -10
+.Dl $ bsdthinkpad brightness -10
 .Pp
 Set the OSS pcm level to 100 percent:
-.Dl $ tposd pcm 100
+.Dl $ bsdthinkpad pcm 100
 .Pp
 See the messages of the watcher:
-.Dl $ grep tposd /var/log/messages
+.Dl $ grep bsdthinkpad /var/log/messages
 .Sh SEE ALSO
 .Xr pkexec 1 ,
 .Xr mixer 3 ,
 .Xr syslog 3 ,
 .Xr acpi_ibm 4 ,
+.Xr bsdthinkpad-mute-led 8 ,
+.Xr bsdthinkpad-setup 8 ,
 .Xr devd 8 ,
 .Xr mixer 8 ,
-.Xr tposd-mute-led 8 ,
-.Xr tposd-setup 8 ,
 .Xr backlight 9
 .Sh AUTHORS
 .An wugq Aq Mt wugq.dev@gmail.com
