@@ -1,15 +1,11 @@
 PORTNAME=	xfce4-bsdthinkpad-plugin
+DISTVERSIONPREFIX=	v
 DISTVERSION=	0.2.0
 CATEGORIES=	sysutils xfce
-# No download site yet: put the tarball from "make dist" (top directory of
-# the sources) into ${DISTDIR}, then "make makesum".  Once the sources
-# are on GitHub, replace this with
-#	USE_GITHUB=	yes
-#	GH_ACCOUNT=	<account>
-MASTER_SITES=	# none
 
 MAINTAINER=	wugq.dev@gmail.com
 COMMENT=	XFCE panel plugin and OSD for ThinkPad keys on FreeBSD
+WWW=		https://github.com/wugq/xfce4-bsdthinkpad-plugin
 
 LICENSE=	BSD2CLAUSE
 LICENSE_FILE=	${WRKSRC}/LICENSE
@@ -23,6 +19,8 @@ RUN_DEPENDS=	${LOCALBASE}/sbin/acpi_call:sysutils/acpi_call \
 		ck-list-sessions:sysutils/consolekit2
 
 USES=		gnome pkgconfig xfce
+USE_GITHUB=	yes
+GH_ACCOUNT=	wugq
 USE_GNOME=	glib20 gtk30
 USE_XFCE=	panel
 

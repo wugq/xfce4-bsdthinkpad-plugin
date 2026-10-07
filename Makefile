@@ -7,7 +7,7 @@
 #   make setup             as root, without the port: install the
 #                          dependencies, "make install", then bsdthinkpad-setup
 #                          (kernel modules, pkexec PAM fix, devd, OSS pcm)
-#   make dist              source tarball for the port (needs git)
+#   make dist              source tarball of HEAD (needs git)
 #   make CFLAGS="-O0 -g3"  build for debugging
 #   make clean
 

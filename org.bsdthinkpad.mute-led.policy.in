@@ -5,22 +5,25 @@
 <!--
   SPDX-License-Identifier: BSD-2-Clause
 
-  bsdthinkpad runs bsdthinkpad-mute-led through pkexec to turn the ThinkPad speaker
-  mute LED on or off.  The user at the console (active local session) may
-  do this without a password; remote and inactive sessions may not.
-  Same rules as org.xfce.power.backlight-helper.
+  bsdthinkpad and its panel plugin run bsdthinkpad-mute-led through pkexec
+  to turn the ThinkPad speaker or microphone mute LED on or off.  The user
+  at the console (active local session) may do this without a password;
+  remote and inactive sessions may not.  Same rules as
+  org.xfce.power.backlight-helper.
 -->
 <policyconfig>
-  <vendor>bsdthinkpad</vendor>
+  <vendor>xfce4-bsdthinkpad-plugin</vendor>
+  <vendor_url>https://github.com/wugq/xfce4-bsdthinkpad-plugin</vendor_url>
 
   <action id="org.bsdthinkpad.mute-led">
-    <description>Turn the ThinkPad speaker mute LED on or off</description>
+    <description>Turn a ThinkPad mute LED on or off</description>
     <message>Authentication is required to change the mute LED</message>
     <defaults>
       <allow_any>no</allow_any>
       <allow_inactive>no</allow_inactive>
       <allow_active>yes</allow_active>
     </defaults>
-    <annotate key="org.freedesktop.policykit.exec.path">@LIBEXECDIR@/bsdthinkpad-mute-led</annotate>
+    <annotate key="org.freedesktop.policykit.exec.path"
+      >@LIBEXECDIR@/bsdthinkpad-mute-led</annotate>
   </action>
 </policyconfig>

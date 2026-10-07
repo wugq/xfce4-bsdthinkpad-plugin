@@ -65,10 +65,4 @@ else
 	echo "mixer -f /dev/mixer$unit -o > /var/db/mixer$unit-state"
 fi
 
-# Left over from versions that used sudo
-if [ -e @PREFIX@/etc/sudoers.d/tposd ]; then
-	step "remove the old sudo rule"
-	$dry rm -f @PREFIX@/etc/sudoers.d/tposd
-fi
-
 echo "Done.  Log out and in again; add the panel item \"ThinkPad Controls\"."

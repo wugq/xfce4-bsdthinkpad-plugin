@@ -4,9 +4,10 @@
 # bsdthinkpad-key -- the ThinkPad mic-mute key; run as root by devd(8), see
 # @PREFIX@/etc/devd/bsdthinkpad.conf
 #
-#   bsdthinkpad-key micmute   mic-mute key (ACPI IBM notify 0x1b): toggle the
-#                       microphone mute ("bsdthinkpad micmute", the recording
-#                       level of every mixer) and set its LED
+#   bsdthinkpad-key micmute   mic-mute key (ACPI IBM notify 0x1b): toggle
+#                             the microphone mute ("bsdthinkpad micmute",
+#                             the recording level of every mixer) and set
+#                             its LED
 #
 # bsdthinkpad(1) shows the notification.  The speaker mute key sends no
 # event: the embedded controller handles it, and bsdthinkpad sets its LED.

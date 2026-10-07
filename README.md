@@ -68,20 +68,17 @@ so pressing a key several times shows one popup, not a stack.
 
 ### As a package (port)
 
-The port is in `port/sysutils/xfce4-bsdthinkpad-plugin`. It needs the ports framework
+The port is in `port/sysutils/xfce4-bsdthinkpad-plugin`; it fetches the
+release (tag `v0.2.0`) from GitHub. It needs the ports framework
 (`/usr/ports/Mk`), e.g. a shallow clone of the ports tree:
 ```
 git clone --depth 1 https://git.FreeBSD.org/ports.git /usr/ports
 ```
-Then, from a checkout of these sources:
+Then, from a checkout of these sources, as root:
 ```
-make dist                                  # xfce4-bsdthinkpad-plugin-0.2.0.tar.gz (git archive of HEAD)
-mkdir -p /usr/ports/distfiles
-cp xfce4-bsdthinkpad-plugin-0.2.0.tar.gz /usr/ports/distfiles/
 cd port/sysutils/xfce4-bsdthinkpad-plugin
-make makesum                               # writes distinfo
-make package                               # work/pkg/xfce4-bsdthinkpad-plugin-0.2.0.pkg
-pkg install work/pkg/xfce4-bsdthinkpad-plugin-0.2.0.pkg   # as root; or "make install"
+make package          # work/pkg/xfce4-bsdthinkpad-plugin-0.2.0.pkg
+pkg install work/pkg/xfce4-bsdthinkpad-plugin-0.2.0.pkg    # or "make install"
 ```
 pkg installs the dependencies (libnotify, acpi_call, polkit, consolekit2,
 xfce4-panel). Like any package, it does not change system configuration;

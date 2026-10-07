@@ -1,7 +1,8 @@
 # SPDX-License-Identifier: BSD-2-Clause
 #
-# devd(8) rules for bsdthinkpad.  The ThinkPad mic-mute key arrives only as an
-# acpi_ibm(4) event, not as an X key: toggle the microphone mute and its LED.
+# devd(8) rule for bsdthinkpad.  The ThinkPad mic-mute key arrives only as
+# an acpi_ibm(4) event, not as an X key: toggle the microphone mute and its
+# LED.
 # (The speaker mute key sends no event; the embedded controller handles it.)
 notify 10 {
 	match "system"		"ACPI";
