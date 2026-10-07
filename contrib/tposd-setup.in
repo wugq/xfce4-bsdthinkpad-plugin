@@ -9,7 +9,9 @@
 #   - load acpi_ibm and acpi_call now and at boot (/boot/loader.conf)
 #   - give pkexec's PAM service a session stack without pam_lastlog, whose
 #     "Last login" message makes pkexec abort (original kept as .orig)
-#   - restart devd, so it reads the mic-mute rule
+#   - restart devd, so it reads the mic-mute rule (PulseAudio's
+#     module-devd-detect makes pulseaudio exit when devd restarts; hence
+#     log out and in afterwards)
 #   - set the OSS "pcm" level of the default mixer to 1.00 and save it
 #
 # Usage: tposd-setup [-n]     -n: only show what would be done
@@ -49,6 +51,7 @@ fi
 
 step "devd: read the mic-mute rule"
 $dry service devd restart
+echo "    PulseAudio exits when devd restarts (module-devd-detect); log out and in"
 
 step "OSS pcm of the default mixer at 1.00, saved for the next boot"
 unit=$(sysctl -n hw.snd.default_unit)

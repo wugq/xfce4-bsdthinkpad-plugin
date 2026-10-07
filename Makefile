@@ -11,7 +11,7 @@
 #   make CFLAGS="-O0 -g3"  build for debugging
 #   make clean
 
-VERSION    = 0.1.0
+VERSION    = 0.1.1
 
 PROG       = tposd
 HELPER     = tposd-mute-led
@@ -28,6 +28,7 @@ PLUGINDIR  = $(PREFIX)/lib/xfce4/panel/plugins
 PLUGINDATA = $(PREFIX)/share/xfce4/panel/plugins
 AUTOSTART  = $(PREFIX)/etc/xdg/autostart
 DEVDDIR    = $(PREFIX)/etc/devd
+MANDIR     = $(PREFIX)/share/man
 
 CC        ?= cc
 CFLAGS    ?= -O2 -pipe
@@ -41,7 +42,8 @@ HW_CFLAGS      = -DMUTE_LED_HELPER='"$(LIBEXECDIR)/$(HELPER)"'
 
 # Files made from templates: @PREFIX@, @BINDIR@ and @LIBEXECDIR@ filled in
 GENERATED  = tposd.desktop org.tposd.mute-led.policy \
-	     contrib/thinkpad-micmute.conf contrib/tposd-setup
+	     contrib/tposd.conf contrib/tposd-key contrib/tposd-setup \
+	     man/tposd.1 man/tposd-mute-led.8 man/tposd-setup.8
 SUBST      = sed -e 's|@PREFIX@|$(PREFIX)|g' -e 's|@BINDIR@|$(BINDIR)|g' \
 		 -e 's|@LIBEXECDIR@|$(LIBEXECDIR)|g'
 
@@ -63,29 +65,39 @@ tposd.desktop: tposd.desktop.in
 	$(SUBST) tposd.desktop.in > $@
 org.tposd.mute-led.policy: org.tposd.mute-led.policy.in
 	$(SUBST) org.tposd.mute-led.policy.in > $@
-contrib/thinkpad-micmute.conf: contrib/thinkpad-micmute.conf.in
-	$(SUBST) contrib/thinkpad-micmute.conf.in > $@
+contrib/tposd.conf: contrib/tposd.conf.in
+	$(SUBST) contrib/tposd.conf.in > $@
+contrib/tposd-key: contrib/tposd-key.in
+	$(SUBST) contrib/tposd-key.in > $@
 contrib/tposd-setup: contrib/tposd-setup.in
 	$(SUBST) contrib/tposd-setup.in > $@
+man/tposd.1: man/tposd.1.in
+	$(SUBST) man/tposd.1.in > $@
+man/tposd-mute-led.8: man/tposd-mute-led.8.in
+	$(SUBST) man/tposd-mute-led.8.in > $@
+man/tposd-setup.8: man/tposd-setup.8.in
+	$(SUBST) man/tposd-setup.8.in > $@
 
 install: all
 	install -d $(DESTDIR)$(BINDIR) $(DESTDIR)$(SBINDIR) \
 	    $(DESTDIR)$(LIBEXECDIR) $(DESTDIR)$(POLKITDIR) \
 	    $(DESTDIR)$(PLUGINDIR) $(DESTDIR)$(PLUGINDATA) \
-	    $(DESTDIR)$(AUTOSTART) $(DESTDIR)$(DEVDDIR)
+	    $(DESTDIR)$(AUTOSTART) $(DESTDIR)$(DEVDDIR) \
+	    $(DESTDIR)$(MANDIR)/man1 $(DESTDIR)$(MANDIR)/man8
 	install -m 755 $(PROG) $(DESTDIR)$(BINDIR)/$(PROG)
 	install -m 755 contrib/tposd-setup $(DESTDIR)$(SBINDIR)/tposd-setup
 	install -m 755 $(HELPER) $(DESTDIR)$(LIBEXECDIR)/$(HELPER)
-	install -m 755 contrib/thinkpad-micmute \
-	    $(DESTDIR)$(LIBEXECDIR)/thinkpad-micmute
+	install -m 755 contrib/tposd-key $(DESTDIR)$(LIBEXECDIR)/tposd-key
 	install -m 644 org.tposd.mute-led.policy \
 	    $(DESTDIR)$(POLKITDIR)/org.tposd.mute-led.policy
 	install -m 755 $(PLUGIN) $(DESTDIR)$(PLUGINDIR)/$(PLUGIN)
 	install -m 644 tposd-panel.desktop \
 	    $(DESTDIR)$(PLUGINDATA)/tposd-panel.desktop
 	install -m 644 tposd.desktop $(DESTDIR)$(AUTOSTART)/tposd.desktop
-	install -m 644 contrib/thinkpad-micmute.conf \
-	    $(DESTDIR)$(DEVDDIR)/thinkpad-micmute.conf
+	install -m 644 contrib/tposd.conf $(DESTDIR)$(DEVDDIR)/tposd.conf
+	install -m 644 man/tposd.1 $(DESTDIR)$(MANDIR)/man1/tposd.1
+	install -m 644 man/tposd-setup.8 man/tposd-mute-led.8 \
+	    $(DESTDIR)$(MANDIR)/man8
 
 # Without the port; as root (e.g. "su -m root -c 'make setup'")
 setup: install

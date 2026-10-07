@@ -1,0 +1,68 @@
+.\"-
+.\" SPDX-License-Identifier: BSD-2-Clause
+.\"
+.\" Copyright (c) 2026, wugq
+.\"
+.Dd October 7, 2026
+.Dt TPOSD-SETUP 8
+.Os
+.Sh NAME
+.Nm tposd-setup
+.Nd configure the system for tposd
+.Sh SYNOPSIS
+.Nm
+.Op Fl n
+.Sh DESCRIPTION
+Installing
+.Xr tposd 1
+does not change the system configuration;
+.Nm
+does.
+Run it once as root after installing, and again after an upgrade that says
+so.
+It:
+.Bl -bullet
+.It
+loads the kernel modules
+.Xr acpi_ibm 4
+and
+.Xr acpi_call 8 ,
+now and at boot
+.Pq Pa /boot/loader.conf ;
+.It
+gives the PAM service of
+.Xr pkexec 1 ,
+.Pa @PREFIX@/etc/pam.d/polkit-1 ,
+a session stack without
+.Xr pam_lastlog 8 ,
+whose
+.Dq Last login
+message makes pkexec abort; the original is kept as
+.Pa polkit-1.orig ;
+.It
+restarts
+.Xr devd 8 ,
+so it reads the rule for the microphone mute key.
+PulseAudio, whose module-devd-detect is connected to devd, exits when devd
+restarts; log out and in again afterwards;
+.It
+sets the OSS
+.Dq pcm
+level of the default mixer to 1.00 and saves it for the next boot.
+.El
+.Pp
+The options are as follows:
+.Bl -tag -width Ds
+.It Fl n
+Only show what would be done.
+.El
+.Sh EXIT STATUS
+.Ex -std
+.Sh SEE ALSO
+.Xr pkexec 1 ,
+.Xr tposd 1 ,
+.Xr loader.conf 5 ,
+.Xr pam.conf 5 ,
+.Xr devd 8 ,
+.Xr mixer 8 ,
+.Xr tposd-mute-led 8

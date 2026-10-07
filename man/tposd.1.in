@@ -1,0 +1,163 @@
+.\"-
+.\" SPDX-License-Identifier: BSD-2-Clause
+.\"
+.\" Copyright (c) 2026, wugq
+.\"
+.Dd October 7, 2026
+.Dt TPOSD 1
+.Os
+.Sh NAME
+.Nm tposd
+.Nd on-screen display for ThinkPad brightness and mute keys
+.Sh SYNOPSIS
+.Nm
+.Op Fl n
+.Op Fl i Ar interval
+.Nm
+.Cm brightness
+.Sm off
+.Op Cm + | Cm \-
+.Ar N
+.Sm on
+.Nm
+.Cm pcm
+.Sm off
+.Op Cm + | Cm \-
+.Ar N
+.Sm on
+.Nm
+.Cm micmute
+.Op Cm on | off | toggle
+.Sh DESCRIPTION
+Without a command,
+.Nm
+watches the screen brightness, the speaker mute of the ThinkPad embedded
+controller and the microphone mute, and shows a desktop notification
+whenever one of them changes, whoever changed it.
+It is started with the desktop session by
+.Pa @PREFIX@/etc/xdg/autostart/tposd.desktop .
+.Pp
+It reads:
+.Bl -tag -width "microphone mute"
+.It brightness
+.Pa /dev/backlight/backlight0 ,
+see
+.Xr backlight 9 .
+The notification has a bar.
+.It speaker mute
+the sysctl
+.Va dev.acpi_ibm.0.mute ,
+see
+.Xr acpi_ibm 4 .
+The embedded controller mutes the speaker in hardware when the mute key is
+pressed, and sends no event.
+.Nm
+turns the mute LED on and off, which
+.Xr acpi_ibm 4
+does not.
+.It microphone mute
+the recording level
+.Pq Dq rec
+of every mixer that has one, see
+.Xr mixer 3 .
+A laptop's internal microphone is often a sound device of its own, so all
+of them are muted together; the microphone counts as muted when all are.
+.Nm
+keeps the microphone mute LED in step with it.
+.El
+.Pp
+At start and on every change of the speaker or microphone mute,
+.Nm
+sets the mute LEDs with
+.Xr tposd-mute-led 8
+through
+.Xr pkexec 1 .
+If that fails, it warns once and goes on.
+.Pp
+The options are as follows:
+.Bl -tag -width Ds
+.It Fl i Ar interval
+Poll every
+.Ar interval
+milliseconds (default 200, at least 50).
+.It Fl n
+Do not set the mute LEDs.
+.El
+.Pp
+The commands are as follows:
+.Bl -tag -width Ds
+.It Cm brightness Oo Cm + | Cm \- Oc Ns Ar N
+Change the screen brightness by
+.Ar N
+percent, or set it to
+.Ar N
+percent without a sign, and print the new value.
+Bind the brightness keys to
+.Ql tposd brightness +10
+and
+.Ql tposd brightness -10 .
+.It Cm pcm Oo Cm + | Cm \- Oc Ns Ar N
+The same for the OSS
+.Dq pcm
+level of the default mixer, which PulseAudio does not reliably manage.
+.It Cm micmute Op Cm on | off | toggle
+Mute
+.Pq Cm on
+or unmute
+.Pq Cm off
+the microphone, or toggle it, and print the new state,
+.Dq on
+or
+.Dq off .
+Without an argument, only print it.
+The mute LED follows through the watcher, or through
+.Pa @LIBEXECDIR@/tposd-key
+for the mic-mute key.
+.El
+.Pp
+The watcher logs to
+.Xr syslog 3
+with the identifier
+.Dq tposd :
+a failing
+.Xr pkexec 1 ,
+a failing notification, and, at start, when the kernel can not read the
+environment of the process
+.Pq Va kern.proc.env ,
+which keeps ConsoleKit and so polkit from finding the session.
+.Sh FILES
+.Bl -tag -width Ds -compact
+.It Pa @PREFIX@/etc/devd/tposd.conf
+.Xr devd 8
+rule for the microphone mute key, which arrives only as an ACPI event.
+.It Pa @LIBEXECDIR@/tposd-key
+run by this rule as root: runs
+.Ql tposd micmute toggle
+and sets the LED.
+.It Pa @PREFIX@/lib/xfce4/panel/plugins/libtposd-panel.so
+the XFCE panel plugin
+.Dq ThinkPad Controls .
+.El
+.Sh EXIT STATUS
+.Ex -std
+.Sh EXAMPLES
+Make the screen darker by 10 percent:
+.Dl $ tposd brightness -10
+.Pp
+Set the OSS pcm level to 100 percent:
+.Dl $ tposd pcm 100
+.Pp
+See the messages of the watcher:
+.Dl $ grep tposd /var/log/messages
+.Sh SEE ALSO
+.Xr pkexec 1 ,
+.Xr mixer 3 ,
+.Xr syslog 3 ,
+.Xr acpi_ibm 4 ,
+.Xr devd 8 ,
+.Xr mixer 8 ,
+.Xr tposd-mute-led 8 ,
+.Xr tposd-setup 8 ,
+.Xr backlight 9
+.Sh AUTHORS
+.An wugq Aq Mt wugq.dev@gmail.com

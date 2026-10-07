@@ -10,7 +10,8 @@
  *   PCM (OSS)    slider: the OSS "pcm" level of the default mixer
  *   speaker      switch: the ThinkPad hardware mute (same as the mute key),
  *                LED included
- *   microphone   switch; the LED follows
+ *   microphone   switch: the recording level of all sound devices (same as
+ *                the mic-mute key), LED included
  *
  * Volume is the pulseaudio plugin's job: its sink volume is the OSS "vol" of
  * the sound card.  It does not reliably manage "pcm", which still limits
@@ -466,7 +467,8 @@ build_popup(Panel *p)
 	    "same as the mute key; LED included",
 	    &p->speaker_icon, &p->speaker_switch);
 	p->mic_row = switch_row(GTK_GRID(grid), 3, names, "Microphone",
-	    "OSS \"mic\" mute, same as the mic-mute key; LED included",
+	    "Recording level of all sound devices, same as the mic-mute key; "
+	    "LED included",
 	    &p->mic_icon, &p->mic_switch);
 	g_object_unref(names);
 

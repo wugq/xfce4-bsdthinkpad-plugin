@@ -1,5 +1,5 @@
 PORTNAME=	tposd
-DISTVERSION=	0.1.0
+DISTVERSION=	0.1.1
 CATEGORIES=	sysutils xfce
 # No download site yet: put the tarball from "make dist" (top directory of
 # the tposd sources) into ${DISTDIR}, then "make makesum".  Once the sources

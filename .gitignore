@@ -5,6 +5,8 @@
 /libtposd-panel.so
 /tposd.desktop
 /org.tposd.mute-led.policy
-/contrib/thinkpad-micmute.conf
+/contrib/tposd.conf
+/contrib/tposd-key
 /contrib/tposd-setup
 /*.tar.gz
+/man/*.[18]

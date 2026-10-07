@@ -44,7 +44,12 @@ int	hw_set_pcm(int value);
  */
 int	hw_get_oss_levels(int *unit, float *vol, float *pcm);
 
-/* Default mixer: microphone mute 0/1 */
+/*
+ * Microphone mute 0/1: the recording level ("rec") of every mixer that has
+ * one, so that all inputs are cut, whichever device a program records from
+ * (e.g. the internal microphone is often a device of its own, such as
+ * "pcm4: Internal Analog Mic").  Muted only when all of them are muted.
+ */
 int	hw_get_micmute(void);
 int	hw_set_micmute(int on);
 

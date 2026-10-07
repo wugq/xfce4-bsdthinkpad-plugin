@@ -18,6 +18,18 @@ panel item "ThinkPad Controls".  Bind the brightness keys to
 Application Shortcuts; leave the volume keys to the PulseAudio plugin.
 EOM
 }
+{ type: upgrade
+  maximum_version: "0.1.0"
+  message: <<EOM
+The devd rule for the mic-mute key is now %%PREFIX%%/etc/devd/tposd.conf.
+Restart devd to read it, as root:
+
+    service devd restart
+
+then log out and in again: PulseAudio's module-devd-detect makes pulseaudio
+exit when devd restarts, and programs playing sound lose it.
+EOM
+}
 { type: remove
   message: <<EOM
 tposd-setup's changes stay: acpi_ibm_load/acpi_call_load in
