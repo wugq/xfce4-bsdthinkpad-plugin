@@ -166,8 +166,9 @@ stays there (as the PulseAudio plugin's tooltip does). Click for:
  🎤 Microphone               [ on ]   recording level of all mixers, LED included
 ```
 
-The popup takes no keyboard grab, so the brightness and volume keys keep
-working while it is open (it closes when it loses focus or on Escape). Items the machine does not have (no
+Like the PulseAudio plugin's popup, it grabs keyboard and pointer while open:
+the brightness and volume keys work again once it is closed (a click
+outside, Escape, or the panel button closes it). Items the machine does not have (no
 backlight, no `acpi_ibm`, no mixer with a recording level) are hidden. The popup re-reads the
 hardware while open, so keys pressed meanwhile show up at once.
 

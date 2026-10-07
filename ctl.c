@@ -112,7 +112,12 @@ run_done(GPid pid, gint status, gpointer data)
 	ctl_refresh(ctl);
 }
 
-/* Start "pkexec tposd-mute-led which 0|1"; FALSE if it could not start */
+/*
+ * Start "pkexec tposd-mute-led which 0|1"; FALSE if it could not start.
+ * Never wait for it here: run synchronously from a GTK handler while the
+ * popup held its grab, pkexec made the plugin crash (Xlib _XAllocID
+ * assertion).
+ */
 static gboolean
 run_helper(Ctl *ctl, const char *which, int on, int speaker)
 {
@@ -178,7 +183,11 @@ ctl_set_speaker_mute(Ctl *ctl, int mute)
 	update(ctl);
 }
 
-/* The mixer is ours to change; the LED needs root */
+/*
+ * The mixer is ours to change; the LED needs root.  The tposd watcher sets
+ * the LED too when it sees the change; that is harmless (same value), and
+ * keeps the LED right when tposd does not run.
+ */
 void
 ctl_set_mic_mute(Ctl *ctl, int mute)
 {

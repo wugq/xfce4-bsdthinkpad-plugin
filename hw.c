@@ -75,12 +75,6 @@ hw_get_hwmute(void)
 	return val != 0;
 }
 
-int
-hw_set_hwmute(int on)
-{
-	return hw_set_led("speaker", on);
-}
-
 /* ---- mixer channels: mixer(3) ------------------------------------------- */
 /*
  * mixer_open() reads the current state, so open the mixer for every call;

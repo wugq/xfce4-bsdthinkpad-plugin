@@ -108,16 +108,6 @@ show(NotifyNotification **n, const char *summary, const char *body,
 	}
 }
 
-static const char *
-brightness_icon(int v)
-{
-	if (v < 34)
-		return "display-brightness-low";
-	if (v < 67)
-		return "display-brightness-medium";
-	return "display-brightness-high";
-}
-
 /* ---- the watch loop ------------------------------------------------------ */
 
 static gboolean
@@ -131,8 +121,9 @@ poll_once(gpointer data)
 	if (b >= 0 && b != last_brightness) {
 		if (!first) {
 			snprintf(text, sizeof(text), "%d%%", b);
+			/* No theme has per-level brightness icons */
 			show(&n_brightness, "Brightness", text,
-			    brightness_icon(b), b);
+			    "display-brightness-symbolic", b);
 		}
 		last_brightness = b;
 	}
@@ -171,10 +162,14 @@ static void
 check_env_readable(void)
 {
 	int mib[4] = { CTL_KERN, KERN_PROC, KERN_PROC_ENV, (int)getpid() };
-	char buf[16384];
-	size_t len = sizeof(buf);
+	size_t len;
 
-	if (sysctl(mib, 4, buf, &len, NULL, 0) == 0 || errno != ENOMEM)
+	/*
+	 * Only ask for the size: the kernel still reads the strings (and fails
+	 * the same way), and a buffer of ours that is too small can not cause
+	 * an ENOMEM of its own.
+	 */
+	if (sysctl(mib, 4, NULL, &len, NULL, 0) == 0 || errno != ENOMEM)
 		return;
 	syslog(LOG_WARNING, "the kernel can not read this process's environment "
 	    "(kern.proc.env: ENOMEM, an ASLR-dependent FreeBSD bug), so polkit "
@@ -206,7 +201,8 @@ watch(void)
 /* ---- tposd brightness|pcm [+|-]N ------------------------------------------ */
 
 /*
- * "+N" / "-N" change the value by N, "N" sets it.  Prints the new value.
+ * "+N" / "-N" change the value by N, "N" sets it.  Prints the value read
+ * back, not the one asked for: the hardware rounds (brightness 50 -> 49).
  * The watcher (if running) shows the brightness notification.
  */
 static int
@@ -272,6 +268,7 @@ usage(void)
 int
 main(int argc, char *argv[])
 {
+	const char *errstr;
 	int ch;
 
 	if (argc == 3 && strcmp(argv[1], "brightness") == 0)
@@ -288,9 +285,9 @@ main(int argc, char *argv[])
 			drive_leds = 0;
 			break;
 		case 'i':
-			interval_ms = atoi(optarg);
-			if (interval_ms < 50)
-				interval_ms = 50;
+			interval_ms = (int)strtonum(optarg, 50, 60000, &errstr);
+			if (errstr != NULL)
+				errx(2, "-i %s: %s (50..60000 ms)", optarg, errstr);
 			break;
 		default:
 			usage();

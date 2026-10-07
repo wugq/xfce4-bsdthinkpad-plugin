@@ -10,3 +10,4 @@
 /contrib/tposd-setup
 /*.tar.gz
 /man/*.[18]
+/tmp/

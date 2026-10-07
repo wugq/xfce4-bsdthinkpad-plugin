@@ -43,8 +43,11 @@ typedef struct {
 	/*
 	 * A window placed next to the button (a GtkPopover would be clipped to
 	 * the plugin's small window).  Like the pulseaudio plugin's popup it
-	 * grabs keyboard and pointer while open; a click outside closes it,
-	 * and closing always releases the grab.
+	 * grabs keyboard and pointer while open, so the keys do nothing until
+	 * it closes; a click outside closes it.  We grab ourselves instead of
+	 * xfce_panel_plugin_popup_window(), which did not release the keyboard
+	 * when we closed the window, leaving all hotkeys dead; closing always
+	 * releases our grab.
 	 */
 	GtkWidget	*popup;
 	gboolean	 grabbed;
@@ -67,15 +70,16 @@ static void on_pcm(GtkRange *, Panel *);
 static void on_speaker(GObject *, GParamSpec *, Panel *);
 static void on_mic(GObject *, GParamSpec *, Panel *);
 
-static const char *
-brightness_icon(int v)
-{
-	if (v < 34)
-		return "display-brightness-low-symbolic";
-	if (v < 67)
-		return "display-brightness-medium-symbolic";
-	return "display-brightness-high-symbolic";
-}
+/*
+ * Icon names that the common themes (Adwaita, elementary-xfce, breeze) all
+ * have.  There are no per-level brightness icons such as
+ * "display-brightness-low-symbolic" in any of them.
+ */
+#define ICON_BRIGHTNESS	"display-brightness-symbolic"
+#define ICON_SPEAKER_ON	"audio-volume-high-symbolic"
+#define ICON_SPEAKER_OFF "audio-volume-muted-symbolic"
+#define ICON_MIC_ON	"audio-input-microphone-symbolic"
+#define ICON_MIC_OFF	"microphone-sensitivity-muted-symbolic"
 
 static void
 set_percent(GtkWidget *label, int v)
@@ -86,7 +90,11 @@ set_percent(GtkWidget *label, int v)
 	gtk_label_set_text(GTK_LABEL(label), text);
 }
 
-/* A slider the user is dragging is left alone */
+/*
+ * A slider the user is dragging is left alone, or it would jump under the
+ * pointer (the hardware may round the value, e.g. brightness 50 -> 49);
+ * on_slider_released() catches up.
+ */
 static void
 render_slider(Panel *p, GtkWidget *row, GtkWidget *scale, GtkWidget *label,
     gpointer handler, int v)
@@ -100,6 +108,10 @@ render_slider(Panel *p, GtkWidget *row, GtkWidget *scale, GtkWidget *label,
 	set_percent(label, v);
 }
 
+/*
+ * The handler is blocked while setting the switch: the change comes from the
+ * hardware, not from the user.
+ */
 static void
 render_switch(Panel *p, GtkWidget *row, GtkWidget *icon, GtkWidget *sw,
     gpointer handler, int muted, const char *icon_on, const char *icon_off)
@@ -115,21 +127,50 @@ render_switch(Panel *p, GtkWidget *row, GtkWidget *icon, GtkWidget *sw,
 }
 
 static void
+render_speaker(Panel *p, int muted)
+{
+	render_switch(p, p->speaker_row, p->speaker_icon, p->speaker_switch,
+	    on_speaker, muted, ICON_SPEAKER_ON, ICON_SPEAKER_OFF);
+}
+
+static void
+render_mic(Panel *p, int muted)
+{
+	render_switch(p, p->mic_row, p->mic_icon, p->mic_switch, on_mic, muted,
+	    ICON_MIC_ON, ICON_MIC_OFF);
+}
+
+/* Start a new tooltip line, unless it is the first */
+static void
+tip_line(GString *tip)
+{
+	if (tip->len > 0)
+		g_string_append_c(tip, '\n');
+}
+
+static void
 render_tooltip(Panel *p, const CtlState *s)
 {
 	GString *tip = g_string_new(NULL);
 
 	if (s->brightness >= 0)
 		g_string_append_printf(tip, "Brightness %d%%", s->brightness);
-	if (s->speaker_mute >= 0)
-		g_string_append_printf(tip, "\nSpeaker %s",
+	if (s->speaker_mute >= 0) {
+		tip_line(tip);
+		g_string_append_printf(tip, "Speaker %s",
 		    s->speaker_mute ? "off" : "on");
-	if (s->mic_mute >= 0)
-		g_string_append_printf(tip, "%sMicrophone %s",
-		    s->speaker_mute >= 0 ? " · " : "\n",
+	}
+	if (s->mic_mute >= 0) {
+		if (s->speaker_mute >= 0)
+			g_string_append(tip, " · ");
+		else
+			tip_line(tip);
+		g_string_append_printf(tip, "Microphone %s",
 		    s->mic_mute ? "off" : "on");
+	}
 	if (s->oss_unit >= 0) {
-		g_string_append_printf(tip, "\nOSS mixer%d:", s->oss_unit);
+		tip_line(tip);
+		g_string_append_printf(tip, "OSS mixer%d:", s->oss_unit);
 		if (s->oss_vol >= 0)
 			g_string_append_printf(tip, " vol %.2f", s->oss_vol);
 		if (s->oss_pcm >= 0)
@@ -153,24 +194,16 @@ render(const CtlState *s, gpointer data)
 	CtlState *o = &p->shown;
 	gboolean all = !p->shown_valid;
 
-	if (all || s->brightness != o->brightness) {
-		gtk_image_set_from_icon_name(GTK_IMAGE(p->icon),
-		    brightness_icon(s->brightness < 0 ? 100 : s->brightness),
-		    GTK_ICON_SIZE_BUTTON);
+	if (all || s->brightness != o->brightness)
 		render_slider(p, p->bright_row, p->bright_scale,
 		    p->bright_label, on_brightness, s->brightness);
-	}
 	if (all || s->pcm != o->pcm)
 		render_slider(p, p->pcm_row, p->pcm_scale, p->pcm_label,
 		    on_pcm, s->pcm);
 	if (all || s->speaker_mute != o->speaker_mute)
-		render_switch(p, p->speaker_row, p->speaker_icon,
-		    p->speaker_switch, on_speaker, s->speaker_mute,
-		    "audio-volume-high-symbolic", "audio-volume-muted-symbolic");
+		render_speaker(p, s->speaker_mute);
 	if (all || s->mic_mute != o->mic_mute)
-		render_switch(p, p->mic_row, p->mic_icon, p->mic_switch,
-		    on_mic, s->mic_mute, "audio-input-microphone-symbolic",
-		    "microphone-sensitivity-muted-symbolic");
+		render_mic(p, s->mic_mute);
 	render_tooltip(p, s);
 
 	*o = *s;
@@ -193,16 +226,19 @@ on_pcm(GtkRange *range, Panel *p)
 	ctl_set_pcm(p->ctl, (int)gtk_range_get_value(range));
 }
 
+/*
+ * The switches show the Ctl's state, not the click: if the request was
+ * refused (one already pending, a mixer that can not be changed), the state
+ * did not change, render() is not called, and this puts the switch back.
+ */
+
 /* Switch on = sound on */
 static void
 on_speaker(GObject *sw, GParamSpec *pspec, Panel *p)
 {
 	(void)pspec;
 	ctl_set_speaker_mute(p->ctl, !gtk_switch_get_active(GTK_SWITCH(sw)));
-	/* Refused (e.g. one already pending): put the switch back */
-	render_switch(p, p->speaker_row, p->speaker_icon, p->speaker_switch,
-	    on_speaker, ctl_state(p->ctl)->speaker_mute,
-	    "audio-volume-high-symbolic", "audio-volume-muted-symbolic");
+	render_speaker(p, ctl_state(p->ctl)->speaker_mute);
 }
 
 /* Switch on = microphone on */
@@ -211,6 +247,34 @@ on_mic(GObject *sw, GParamSpec *pspec, Panel *p)
 {
 	(void)pspec;
 	ctl_set_mic_mute(p->ctl, !gtk_switch_get_active(GTK_SWITCH(sw)));
+	render_mic(p, ctl_state(p->ctl)->mic_mute);
+}
+
+static gboolean
+render_sliders_idle(gpointer data)
+{
+	Panel *p = data;
+	const CtlState *s = ctl_state(p->ctl);
+
+	render_slider(p, p->bright_row, p->bright_scale, p->bright_label,
+	    on_brightness, s->brightness);
+	render_slider(p, p->pcm_row, p->pcm_scale, p->pcm_label, on_pcm,
+	    s->pcm);
+	return G_SOURCE_REMOVE;
+}
+
+/*
+ * Dragging ended: show the value the hardware took (see render_slider()).
+ * The scale still holds its grab while this handler runs, so render from
+ * the main loop, once it has let go.
+ */
+static gboolean
+on_slider_released(GtkWidget *w, GdkEvent *ev, Panel *p)
+{
+	(void)w;
+	(void)ev;
+	g_idle_add(render_sliders_idle, p);
+	return FALSE;
 }
 
 /* Scroll on the panel icon: brightness up/down */
@@ -454,7 +518,7 @@ build_popup(Panel *p)
 	g_object_set(grid, "margin", 12, NULL);
 
 	p->bright_row = slider_row(GTK_GRID(grid), 0, names,
-	    "display-brightness-symbolic", "Brightness",
+	    ICON_BRIGHTNESS, "Brightness",
 	    "backlight(9): " HW_BACKLIGHT_DEV,
 	    &p->bright_scale, &p->bright_label);
 	p->pcm_row = slider_row(GTK_GRID(grid), 1, names,
@@ -475,6 +539,10 @@ build_popup(Panel *p)
 	g_signal_connect(p->bright_scale, "value-changed",
 	    G_CALLBACK(on_brightness), p);
 	g_signal_connect(p->pcm_scale, "value-changed", G_CALLBACK(on_pcm), p);
+	g_signal_connect(p->bright_scale, "button-release-event",
+	    G_CALLBACK(on_slider_released), p);
+	g_signal_connect(p->pcm_scale, "button-release-event",
+	    G_CALLBACK(on_slider_released), p);
 	g_signal_connect(p->speaker_switch, "notify::active",
 	    G_CALLBACK(on_speaker), p);
 	g_signal_connect(p->mic_switch, "notify::active", G_CALLBACK(on_mic),
@@ -523,7 +591,8 @@ construct(XfcePanelPlugin *plugin)
 
 	p->plugin = plugin;
 	p->button = xfce_panel_create_toggle_button();
-	p->icon = gtk_image_new();
+	p->icon = gtk_image_new_from_icon_name(ICON_BRIGHTNESS,
+	    GTK_ICON_SIZE_BUTTON);
 	gtk_container_add(GTK_CONTAINER(p->button), p->icon);
 	g_signal_connect(p->button, "toggled", G_CALLBACK(on_toggled), p);
 	g_signal_connect(p->button, "enter-notify-event", G_CALLBACK(on_enter),

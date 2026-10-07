@@ -23,11 +23,10 @@ int	hw_set_brightness(int value);
 
 /*
  * Speaker mute done by the ThinkPad embedded controller: 0/1, acpi_ibm(4).
- * Setting it goes through the root helper (ACPI method SSMS, which mutes
- * and sets the LED together).
+ * Setting it goes through the root helper (hw_set_led("speaker"): ACPI
+ * method SSMS, which mutes and sets the LED together).
  */
 int	hw_get_hwmute(void);
-int	hw_set_hwmute(int on);
 
 /*
  * Default mixer, mixer(3): OSS "pcm" level 0..100.  pulseaudio (module-oss)

@@ -68,6 +68,7 @@ speaker_led(int on)
 
 	snprintf(method, sizeof(method), "%s.SSMS", handle);
 	args[4] = on ? "1" : "0";
+	/* Running as root for the caller: a fixed path and environment only */
 	execve(ACPI_CALL, args, env);
 	err(1, "%s", ACPI_CALL);
 }

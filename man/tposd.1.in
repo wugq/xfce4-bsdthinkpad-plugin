@@ -79,7 +79,7 @@ The options are as follows:
 .It Fl i Ar interval
 Poll every
 .Ar interval
-milliseconds (default 200, at least 50).
+milliseconds, 50 to 60000 (default 200).
 .It Fl n
 Do not set the mute LEDs.
 .El
