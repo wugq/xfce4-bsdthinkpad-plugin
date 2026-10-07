@@ -5,38 +5,26 @@
  *
  * tposd -- on-screen display for ThinkPad keys on FreeBSD (XFCE and others)
  *
- * Shows desktop notifications, like xfce4-power-manager and the
- * xfce4-pulseaudio-plugin do on Linux, for things FreeBSD does not report:
+ * Shows desktop notifications for what the XFCE pulseaudio plugin and power
+ * manager can not see on FreeBSD:
  *
  *   brightness       /dev/backlight/backlight0 (backlight(9)), with a bar
  *   speaker mute     the embedded controller mutes the speaker in hardware;
  *                    only the sysctl dev.acpi_ibm.0.mute changes.  tposd also
- *                    turns the mute LED on/off through the ACPI method SSMS
- *                    (tposd-mute-led via pkexec), which acpi_ibm(4) does not
- *   microphone mute  the "mic" channel of the default mixer (mixer(3))
- *   volume           the "vol" channel of the default mixer, with a bar
+ *                    turns the mute LED on/off (tposd-mute-led via pkexec),
+ *                    which acpi_ibm(4) does not
+ *   microphone mute  the "mic" channel of the default mixer (mixer(3)); the
+ *                    LED follows it, whoever changed it (key, panel, mixer)
+ *
+ * Volume is left to the pulseaudio panel plugin (keys and popups).
  *
  * Usage:
- *   tposd [-n] [-i ms]                  watch and notify (run from autostart)
- *   tposd brightness [+|-]N             change brightness, e.g. +10, -10, 50
- *   tposd volume [+|-]N                 change volume (percent), e.g. +5, -5
- *
- * Bind the keys (XF86MonBrightnessUp/Down, XF86AudioRaiseVolume/LowerVolume)
- * to the subcommands; the watcher shows the result whoever changed it.
+ *   tposd [-n] [-i ms]          watch and notify (run from autostart)
+ *   tposd brightness [+|-]N     change brightness, e.g. +10, -10, 50
  */
-
-#include <sys/types.h>
-#include <sys/backlight.h>
-#include <sys/ioctl.h>
-#include <sys/soundcard.h>
-#include <sys/sysctl.h>
-#include <sys/wait.h>
 
 #include <err.h>
 #include <errno.h>
-#include <fcntl.h>
-#include <mixer.h>
-#include <spawn.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -44,163 +32,30 @@
 
 #include <libnotify/notify.h>
 
-#define BACKLIGHT_DEV   "/dev/backlight/backlight0"
-#define MUTE_SYSCTL     "dev.acpi_ibm.0.mute"
-#ifndef MUTE_LED_HELPER
-#define MUTE_LED_HELPER "/usr/local/libexec/tposd-mute-led"
-#endif
-#define TIMEOUT_MS      1500
+#include "hw.h"
 
-extern char **environ;
+#define TIMEOUT_MS	1500
 
-static int         interval_ms = 200;    /* how often to poll */
-static int         drive_led = 1;        /* set the mute LED (via pkexec) */
+static int interval_ms = 200;		/* how often to poll */
+static int drive_leds = 1;		/* set the mute LEDs (via pkexec) */
 
 /* Last seen values; -1 = unknown / not available */
 static int last_brightness = -1;
 static int last_hwmute = -1;
 static int last_micmute = -1;
-static int last_volume = -1;
 
 /* One notification per kind, updated in place so new ones replace old ones */
-static NotifyNotification *n_brightness, *n_mute, *n_mic, *n_volume;
+static NotifyNotification *n_brightness, *n_mute, *n_mic;
 
-/* ---- reading and writing the hardware --------------------------------- */
-
-static int
-read_brightness(void)
-{
-	struct backlight_props props;
-	int fd, r = -1;
-
-	if ((fd = open(BACKLIGHT_DEV, O_RDONLY)) < 0)
-		return -1;
-	if (ioctl(fd, BACKLIGHTGETSTATUS, &props) == 0)
-		r = (int)props.brightness;
-	close(fd);
-	return r;
-}
-
-static int
-write_brightness(int value)
-{
-	struct backlight_props props;
-	int fd, r;
-
-	if (value < 0)
-		value = 0;
-	if (value > 100)
-		value = 100;
-	if ((fd = open(BACKLIGHT_DEV, O_RDWR)) < 0)
-		return -1;
-	r = ioctl(fd, BACKLIGHTGETSTATUS, &props);
-	if (r == 0) {
-		props.brightness = (uint32_t)value;
-		r = ioctl(fd, BACKLIGHTUPDATESTATUS, &props);
-	}
-	close(fd);
-	return r;
-}
-
-static int
-read_hwmute(void)
-{
-	int val;
-	size_t len = sizeof(val);
-
-	if (sysctlbyname(MUTE_SYSCTL, &val, &len, NULL, 0) != 0)
-		return -1;
-	return val != 0;
-}
-
-static int
-read_micmute(void)
-{
-	struct mixer *m;
-	int r;
-
-	/* mixer_open() reads the current state, so open it each time */
-	if ((m = mixer_open(NULL)) == NULL)
-		return -1;
-	r = MIX_ISDEV(m, SOUND_MIXER_MIC) ? MIX_ISMUTE(m, SOUND_MIXER_MIC) : -1;
-	mixer_close(m);
-	return r;
-}
-
-/* Master volume of the default mixer in percent (average of left and right) */
-static int
-read_volume(void)
-{
-	struct mixer *m;
-	struct mix_dev *d;
-	int r = -1;
-
-	if ((m = mixer_open(NULL)) == NULL)
-		return -1;
-	if ((d = mixer_get_dev(m, SOUND_MIXER_VOLUME)) != NULL)
-		r = MIX_VOLDENORM((d->vol.left + d->vol.right) / 2.0f);
-	mixer_close(m);
-	return r;
-}
-
-static int
-write_volume(int value)
-{
-	struct mixer *m;
-	mix_volume_t v;
-	int r = -1;
-
-	if (value < 0)
-		value = 0;
-	if (value > 100)
-		value = 100;
-	if ((m = mixer_open(NULL)) == NULL)
-		return -1;
-	if (mixer_get_dev(m, SOUND_MIXER_VOLUME) != NULL) {
-		v.left = v.right = MIX_VOLNORM(value);
-		r = mixer_set_vol(m, v);
-	}
-	mixer_close(m);
-	return r;
-}
-
-/*
- * Turn the speaker mute LED on or off.  Needs root, so run the helper
- * tposd-mute-led through pkexec; the polkit policy org.tposd.mute-led lets
- * the user at the console do that without a password (like
- * xfce4-power-manager and its backlight helper).  SSMS(1) also mutes in
- * hardware, so we only ever pass the state the controller already has.
- * If the helper is not installed or not allowed, give up quietly for good.
- */
+/* Set a mute LED; if the helper is missing or refused, stop trying */
 static void
-set_mute_led(int on)
+led(const char *which, int on)
 {
-	char *argv[] = { "pkexec", MUTE_LED_HELPER, on ? "1" : "0", NULL };
-	posix_spawn_file_actions_t fa;
-	pid_t pid;
-	int status;
-
-	if (!drive_led)
-		return;
-	if (access(MUTE_LED_HELPER, X_OK) != 0) {
-		drive_led = 0;
-		return;
+	if (drive_leds && hw_set_led(which, on) != 0) {
+		warnx("%s failed; not driving the mute LEDs", MUTE_LED_HELPER);
+		drive_leds = 0;
 	}
-	posix_spawn_file_actions_init(&fa);
-	posix_spawn_file_actions_addopen(&fa, STDOUT_FILENO, "/dev/null",
-	    O_WRONLY, 0);
-	posix_spawn_file_actions_addopen(&fa, STDERR_FILENO, "/dev/null",
-	    O_WRONLY, 0);
-	if (posix_spawnp(&pid, "pkexec", &fa, NULL, argv, environ) == 0 &&
-	    waitpid(pid, &status, 0) == pid &&
-	    !(WIFEXITED(status) && WEXITSTATUS(status) == 0)) {
-		warnx("%s failed; not driving the mute LED", MUTE_LED_HELPER);
-		drive_led = 0;
-	}
-	posix_spawn_file_actions_destroy(&fa);
 }
-
-/* ---- notifications ------------------------------------------------------ */
 
 /*
  * Show (or replace) a notification.  value >= 0 adds the "value" hint,
@@ -236,28 +91,16 @@ brightness_icon(int v)
 	return "display-brightness-high";
 }
 
-static const char *
-volume_icon(int v)
-{
-	if (v == 0)
-		return "audio-volume-muted";
-	if (v < 34)
-		return "audio-volume-low";
-	if (v < 67)
-		return "audio-volume-medium";
-	return "audio-volume-high";
-}
-
 /* ---- the watch loop ------------------------------------------------------ */
 
 static gboolean
 poll_once(gpointer data)
 {
 	int first = GPOINTER_TO_INT(data);
-	int b, hw, mic, vol;
+	int b, hw, mic;
 	char text[32];
 
-	b = read_brightness();
+	b = hw_get_brightness();
 	if (b >= 0 && b != last_brightness) {
 		if (!first) {
 			snprintf(text, sizeof(text), "%d%%", b);
@@ -267,9 +110,9 @@ poll_once(gpointer data)
 		last_brightness = b;
 	}
 
-	hw = read_hwmute();
+	hw = hw_get_hwmute();
 	if (hw >= 0 && hw != last_hwmute) {
-		set_mute_led(hw);
+		led("speaker", hw);
 		if (!first)
 			show(&n_mute, hw ? "Speaker muted" : "Speaker on",
 			    hw ? "Sound is off" : "Sound is on",
@@ -277,8 +120,9 @@ poll_once(gpointer data)
 		last_hwmute = hw;
 	}
 
-	mic = read_micmute();
+	mic = hw_get_micmute();
 	if (mic >= 0 && mic != last_micmute) {
+		led("mic", mic);
 		if (!first)
 			show(&n_mic,
 			    mic ? "Microphone muted" : "Microphone on",
@@ -286,15 +130,6 @@ poll_once(gpointer data)
 			    mic ? "microphone-sensitivity-muted" :
 			    "audio-input-microphone", -1);
 		last_micmute = mic;
-	}
-
-	vol = read_volume();
-	if (vol >= 0 && vol != last_volume) {
-		if (!first) {
-			snprintf(text, sizeof(text), "%d%%", vol);
-			show(&n_volume, "Volume", text, volume_icon(vol), vol);
-		}
-		last_volume = vol;
 	}
 
 	return G_SOURCE_CONTINUE;
@@ -308,7 +143,7 @@ watch(void)
 	if (!notify_init("tposd"))
 		errx(1, "cannot connect to the notification service");
 
-	/* Learn the current state (and set the LED) without notifying */
+	/* Learn the current state (and set the LEDs) without notifying */
 	poll_once(GINT_TO_POINTER(1));
 
 	g_timeout_add((guint)interval_ms, poll_once, GINT_TO_POINTER(0));
@@ -316,15 +151,14 @@ watch(void)
 	g_main_loop_run(loop);
 }
 
-/* ---- tposd brightness|volume [+|-]N ------------------------------------ */
+/* ---- tposd brightness [+|-]N ------------------------------------------ */
 
 /*
  * "+N" / "-N" change the value by N, "N" sets it.  Prints the new value.
- * The watcher (if running) shows the notification.
+ * The watcher (if running) shows the brightness notification.
  */
 static int
-set_cmd(const char *what, const char *arg, int (*get)(void),
-    int (*set)(int), const char *device)
+set_cmd(const char *what, const char *arg, int (*get)(void), int (*set)(int))
 {
 	char *end;
 	long n;
@@ -336,10 +170,10 @@ set_cmd(const char *what, const char *arg, int (*get)(void),
 		errx(2, "%s: expected +N, -N or N, got '%s'", what, arg);
 
 	if ((cur = get()) < 0)
-		err(1, "%s", device);
+		errx(1, "%s: not available", what);
 	val = (arg[0] == '+' || arg[0] == '-') ? cur + (int)n : (int)n;
 	if (set(val) != 0)
-		err(1, "%s", device);
+		err(1, "%s", what);
 	printf("%d\n", get());
 	return 0;
 }
@@ -350,8 +184,7 @@ usage(void)
 	fprintf(stderr,
 	    "usage: tposd [-n] [-i interval-ms]\n"
 	    "       tposd brightness [+|-]N\n"
-	    "       tposd volume [+|-]N\n"
-	    "  -n  do not drive the mute LED\n"
+	    "  -n  do not drive the mute LEDs\n"
 	    "  -i  poll interval in milliseconds (default 200)\n");
 	exit(2);
 }
@@ -362,16 +195,13 @@ main(int argc, char *argv[])
 	int ch;
 
 	if (argc == 3 && strcmp(argv[1], "brightness") == 0)
-		return set_cmd("brightness", argv[2], read_brightness,
-		    write_brightness, BACKLIGHT_DEV);
-	if (argc == 3 && strcmp(argv[1], "volume") == 0)
-		return set_cmd("volume", argv[2], read_volume, write_volume,
-		    "mixer");
+		return set_cmd("brightness", argv[2], hw_get_brightness,
+		    hw_set_brightness);
 
 	while ((ch = getopt(argc, argv, "ni:")) != -1) {
 		switch (ch) {
 		case 'n':
-			drive_led = 0;
+			drive_leds = 0;
 			break;
 		case 'i':
 			interval_ms = atoi(optarg);

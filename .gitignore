@@ -1,3 +1,5 @@
 tposd
 *.o
 *.core
+tposd-mute-led
+libtposd-panel.so

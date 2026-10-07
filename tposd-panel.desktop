@@ -1,0 +1,10 @@
+[Xfce Panel]
+Type=X-XFCE-PanelPlugin
+Encoding=UTF-8
+Name=ThinkPad Controls
+Comment=Brightness, microphone, speaker mute and sound card level (tposd)
+Icon=display-brightness-symbolic
+X-XFCE-Module=tposd-panel
+X-XFCE-Internal=false
+X-XFCE-Unique=true
+X-XFCE-API=2.0
