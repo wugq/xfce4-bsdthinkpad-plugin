@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE policyconfig PUBLIC
+ "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
+ "http://www.freedesktop.org/standards/PolicyKit/1/policyconfig.dtd">
+<!--
+  SPDX-License-Identifier: BSD-2-Clause
+
+  tposd runs tposd-mute-led through pkexec to turn the ThinkPad speaker
+  mute LED on or off.  The user at the console (active local session) may
+  do this without a password; remote and inactive sessions may not.
+  Same rules as org.xfce.power.backlight-helper.
+-->
+<policyconfig>
+  <vendor>tposd</vendor>
+
+  <action id="org.tposd.mute-led">
+    <description>Turn the ThinkPad speaker mute LED on or off</description>
+    <message>Authentication is required to change the mute LED</message>
+    <defaults>
+      <allow_any>no</allow_any>
+      <allow_inactive>no</allow_inactive>
+      <allow_active>yes</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">@LIBEXECDIR@/tposd-mute-led</annotate>
+  </action>
+</policyconfig>

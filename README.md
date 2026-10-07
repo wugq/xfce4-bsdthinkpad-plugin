@@ -28,13 +28,13 @@ so pressing a key several times shows one popup, not a stack.
 
 - FreeBSD 14 or later (`mixer(3)`, `backlight(9)`)
 - A notification daemon (XFCE: `xfce4-notifyd`)
-- Packages `libnotify`, `acpi_call`, `sudo`; kernel modules `acpi_ibm`, `acpi_call`
+- Packages `libnotify`, `acpi_call`, `polkit`, `consolekit2`; kernel modules `acpi_ibm`, `acpi_call`
 
 `make setup` (as root, once) installs and configures all of these:
-- `pkg install libnotify acpi_call sudo`
+- `pkg install libnotify acpi_call polkit consolekit2`
 - `acpi_ibm_load="YES"` and `acpi_call_load="YES"` in `/boot/loader.conf`, and loads them now
-- `/usr/local/etc/sudoers.d/tposd`: members of `wheel` may run `/usr/local/sbin/acpi_call`
-  without a password (tposd runs `sudo -n acpi_call ...` for the mute LED; `tposd -n` skips it)
+- the mute LED helper `/usr/local/libexec/tposd-mute-led` and its polkit policy
+  `/usr/local/share/polkit-1/actions/org.tposd.mute-led.policy` (see below)
 - the mic-mute devd rule and script from `contrib/`
 
 ## Build and install
@@ -67,12 +67,11 @@ xfconf-query -c xfce4-panel -p /plugins/plugin-N/enable-keyboard-shortcuts -s fa
 ## Usage
 
 ```
-tposd [-n] [-i interval-ms] [-a acpi-path]   watch and notify (started by autostart)
+tposd [-n] [-i interval-ms]                  watch and notify (started by autostart)
 tposd brightness [+|-]N                      e.g. +10, -10, or 50 to set
 tposd volume [+|-]N                          e.g. +5, -5, or 40 to set
   -n  do not drive the mute LED
   -i  poll interval in milliseconds (default 200)
-  -a  ACPI method for the mute LED (default \_SB.PCI0.LPC0.EC0.HKEY.SSMS)
 ```
 
 ## Microphone mute key
@@ -82,14 +81,43 @@ not as an X key. A devd rule runs a small script that toggles the microphone
 and its LED; tposd then shows the popup. Both are in `contrib/` and are
 installed by `make setup`.
 
-## Finding the ACPI path of the mute LED on another model
+## How the mute LED gets root
 
+Turning the LED on needs an ACPI method call, which only root may do
+(`/dev/acpi`). tposd itself runs as you, inside your desktop session, so it
+follows the same pattern as `xfce4-power-manager` and its
+`xfpm-power-backlight-helper`:
+
+- a tiny helper, `tposd-mute-led 0|1`, is the only part that runs as root.
+  It accepts nothing but `0` or `1` and calls only the method `SSMS` of the
+  ThinkPad hotkey device, so it cannot be used to call any other ACPI method;
+- tposd runs it with `pkexec`;
+- the polkit policy `org.tposd.mute-led` allows the user at the console
+  (active local session, tracked by ConsoleKit2) to do that without a
+  password; remote (ssh) and inactive sessions are refused:
+  ```
+  pkcheck --action-id org.tposd.mute-led --process $(pgrep -x tposd)   # allowed
+  ```
+
+If the helper is missing or refused, tposd simply stops driving the LED and
+still shows the notifications.
+
+## Other ThinkPads
+
+The helper does not hard-code the ACPI path: it reads the hotkey device from
+`acpi_ibm(4)` and appends `.SSMS`:
 ```
-sudo acpidump -dt > dsdt.asl
-grep -n "Method (SSMS" dsdt.asl        # then find the enclosing Device (HKEY) path
-sudo acpi_call -p '\_SB.PCI0.LPC0.EC0.HKEY.SSMS' -i 1   # LED on (also mutes)
-sudo acpi_call -p '\_SB.PCI0.LPC0.EC0.HKEY.SSMS' -i 0   # LED off
+$ sysctl dev.acpi_ibm.0.%location
+dev.acpi_ibm.0.%location: handle=\_SB_.PCI0.LPC0.EC0_.HKEY
 ```
+It works on ThinkPads whose firmware has the method `SSMS` (most models of the
+last decade). To check yours, as root:
+```
+acpidump -dt | grep -n "Method (SSMS"
+/usr/local/libexec/tposd-mute-led 1     # LED on (also mutes the speaker)
+/usr/local/libexec/tposd-mute-led 0     # LED off
+```
+Brightness, volume and microphone notifications work on any FreeBSD laptop.
 
 ## License
 

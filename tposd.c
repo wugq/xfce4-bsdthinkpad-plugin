@@ -12,12 +12,12 @@
  *   speaker mute     the embedded controller mutes the speaker in hardware;
  *                    only the sysctl dev.acpi_ibm.0.mute changes.  tposd also
  *                    turns the mute LED on/off through the ACPI method SSMS
- *                    (acpi_call), which acpi_ibm(4) does not drive
+ *                    (tposd-mute-led via pkexec), which acpi_ibm(4) does not
  *   microphone mute  the "mic" channel of the default mixer (mixer(3))
  *   volume           the "vol" channel of the default mixer, with a bar
  *
  * Usage:
- *   tposd [-n] [-i ms] [-a acpi-path]   watch and notify (run from autostart)
+ *   tposd [-n] [-i ms]                  watch and notify (run from autostart)
  *   tposd brightness [+|-]N             change brightness, e.g. +10, -10, 50
  *   tposd volume [+|-]N                 change volume (percent), e.g. +5, -5
  *
@@ -46,14 +46,15 @@
 
 #define BACKLIGHT_DEV   "/dev/backlight/backlight0"
 #define MUTE_SYSCTL     "dev.acpi_ibm.0.mute"
-#define DEFAULT_SSMS    "\\_SB.PCI0.LPC0.EC0.HKEY.SSMS"
+#ifndef MUTE_LED_HELPER
+#define MUTE_LED_HELPER "/usr/local/libexec/tposd-mute-led"
+#endif
 #define TIMEOUT_MS      1500
 
 extern char **environ;
 
 static int         interval_ms = 200;    /* how often to poll */
-static int         drive_led = 1;        /* set the mute LED with acpi_call */
-static const char *ssms_path = DEFAULT_SSMS;
+static int         drive_led = 1;        /* set the mute LED (via pkexec) */
 
 /* Last seen values; -1 = unknown / not available */
 static int last_brightness = -1;
@@ -164,28 +165,38 @@ write_volume(int value)
 }
 
 /*
- * Turn the speaker mute LED on or off.  SSMS(1) also mutes in hardware, so
- * we only ever pass the state the controller already has.  Needs root:
- * run through "sudo -n" (fails quietly when sudo is not set up).
+ * Turn the speaker mute LED on or off.  Needs root, so run the helper
+ * tposd-mute-led through pkexec; the polkit policy org.tposd.mute-led lets
+ * the user at the console do that without a password (like
+ * xfce4-power-manager and its backlight helper).  SSMS(1) also mutes in
+ * hardware, so we only ever pass the state the controller already has.
+ * If the helper is not installed or not allowed, give up quietly for good.
  */
 static void
 set_mute_led(int on)
 {
-	char *argv[] = { "sudo", "-n", "/usr/local/sbin/acpi_call",
-	    "-p", (char *)ssms_path, "-i", on ? "1" : "0", NULL };
+	char *argv[] = { "pkexec", MUTE_LED_HELPER, on ? "1" : "0", NULL };
 	posix_spawn_file_actions_t fa;
 	pid_t pid;
 	int status;
 
 	if (!drive_led)
 		return;
+	if (access(MUTE_LED_HELPER, X_OK) != 0) {
+		drive_led = 0;
+		return;
+	}
 	posix_spawn_file_actions_init(&fa);
 	posix_spawn_file_actions_addopen(&fa, STDOUT_FILENO, "/dev/null",
 	    O_WRONLY, 0);
 	posix_spawn_file_actions_addopen(&fa, STDERR_FILENO, "/dev/null",
 	    O_WRONLY, 0);
-	if (posix_spawnp(&pid, "sudo", &fa, NULL, argv, environ) == 0)
-		waitpid(pid, &status, 0);
+	if (posix_spawnp(&pid, "pkexec", &fa, NULL, argv, environ) == 0 &&
+	    waitpid(pid, &status, 0) == pid &&
+	    !(WIFEXITED(status) && WEXITSTATUS(status) == 0)) {
+		warnx("%s failed; not driving the mute LED", MUTE_LED_HELPER);
+		drive_led = 0;
+	}
 	posix_spawn_file_actions_destroy(&fa);
 }
 
@@ -337,13 +348,11 @@ static void
 usage(void)
 {
 	fprintf(stderr,
-	    "usage: tposd [-n] [-i interval-ms] [-a acpi-path]\n"
+	    "usage: tposd [-n] [-i interval-ms]\n"
 	    "       tposd brightness [+|-]N\n"
 	    "       tposd volume [+|-]N\n"
-	    "  -n  do not drive the mute LED (acpi_call)\n"
-	    "  -i  poll interval in milliseconds (default 200)\n"
-	    "  -a  ACPI method for the mute LED (default %s)\n",
-	    DEFAULT_SSMS);
+	    "  -n  do not drive the mute LED\n"
+	    "  -i  poll interval in milliseconds (default 200)\n");
 	exit(2);
 }
 
@@ -359,13 +368,10 @@ main(int argc, char *argv[])
 		return set_cmd("volume", argv[2], read_volume, write_volume,
 		    "mixer");
 
-	while ((ch = getopt(argc, argv, "na:i:")) != -1) {
+	while ((ch = getopt(argc, argv, "ni:")) != -1) {
 		switch (ch) {
 		case 'n':
 			drive_led = 0;
-			break;
-		case 'a':
-			ssms_path = optarg;
 			break;
 		case 'i':
 			interval_ms = atoi(optarg);

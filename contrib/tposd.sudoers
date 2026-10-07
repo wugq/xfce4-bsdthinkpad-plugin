@@ -1,4 +1,0 @@
-# SPDX-License-Identifier: BSD-2-Clause
-# tposd turns the ThinkPad speaker mute LED on/off with acpi_call(8),
-# which needs root.  Allow members of wheel to run only that, without a password.
-%wheel ALL=(root) NOPASSWD: /usr/local/sbin/acpi_call
