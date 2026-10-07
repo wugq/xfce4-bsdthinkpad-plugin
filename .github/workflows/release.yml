@@ -35,9 +35,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        release: ['14.3', '15.1']
+        release: ['14.5', '15.1']
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Build the package
         uses: vmactions/freebsd-vm@v1
@@ -69,7 +69,7 @@ jobs:
             done
             ls -l "$top/out"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: pkg-freebsd-${{ matrix.release }}
           path: out/*.pkg
@@ -82,7 +82,7 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           path: out
           merge-multiple: true
