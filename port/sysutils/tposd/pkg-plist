@@ -1,0 +1,9 @@
+bin/tposd
+etc/devd/thinkpad-micmute.conf
+etc/xdg/autostart/tposd.desktop
+lib/xfce4/panel/plugins/libtposd-panel.so
+libexec/thinkpad-micmute
+libexec/tposd-mute-led
+sbin/tposd-setup
+share/polkit-1/actions/org.tposd.mute-led.policy
+share/xfce4/panel/plugins/tposd-panel.desktop

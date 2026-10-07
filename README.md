@@ -35,7 +35,7 @@ sound card. The OSS `pcm` level is not reliably managed by PulseAudio (it
 sometimes follows, mostly not), and what you hear is limited by both. The
 panel plugin has a PCM slider for it, and its tooltip shows the OSS `vol` and
 `pcm` of the default mixer, so a low `pcm` is easy to spot. Leave `pcm` at
-1.00 (`make setup` sets it and saves it to `/var/db/mixerN-state`) and use
+1.00 (`tposd-setup` sets it and saves it to `/var/db/mixerN-state`) and use
 the PulseAudio plugin for everyday volume.
 
 Written and tested on a ThinkPad A475 (AMD) with FreeBSD 15.1 and XFCE.
@@ -58,35 +58,70 @@ so pressing a key several times shows one popup, not a stack.
 - A notification daemon (XFCE: `xfce4-notifyd`)
 - Packages `libnotify`, `acpi_call`, `polkit`, `consolekit2`, `xfce4-panel`; kernel modules `acpi_ibm`, `acpi_call`
 
-`make setup` (as root, once) installs and configures all of these:
-- `pkg install libnotify acpi_call polkit consolekit2 xfce4-panel`
-- `acpi_ibm_load="YES"` and `acpi_call_load="YES"` in `/boot/loader.conf`, and loads them now
-- the mute LED helper `/usr/local/libexec/tposd-mute-led` and its polkit policy
-  `/usr/local/share/polkit-1/actions/org.tposd.mute-led.policy` (see below)
-- the mic-mute devd rule and script from `contrib/`
-- the panel plugin: `/usr/local/lib/xfce4/panel/plugins/libtposd-panel.so` and
-  `/usr/local/share/xfce4/panel/plugins/tposd-panel.desktop`
-- OSS `pcm` at 1.00 on the default mixer, saved to `/var/db/mixerN-state`
-- the session part of `/usr/local/etc/pam.d/polkit-1` set to `pam_permit`, so
-  pkexec does not abort (see "pkexec aborts" below)
+## Install
 
-## Build and install
+### As a package (port)
+
+The port is in `port/sysutils/tposd`. It needs the ports framework
+(`/usr/ports/Mk`), e.g. a shallow clone of the ports tree:
+```
+git clone --depth 1 https://git.FreeBSD.org/ports.git /usr/ports
+```
+Then, from a checkout of these sources:
+```
+make dist                                  # tposd-0.1.0.tar.gz (git archive of HEAD)
+mkdir -p /usr/ports/distfiles
+cp tposd-0.1.0.tar.gz /usr/ports/distfiles/
+cd port/sysutils/tposd
+make makesum                               # writes distinfo
+make package                               # work/pkg/tposd-0.1.0.pkg
+pkg add work/pkg/tposd-0.1.0.pkg           # as root; or "make install"
+```
+pkg installs the dependencies (libnotify, acpi_call, polkit, consolekit2,
+xfce4-panel). Like any package, it does not change system configuration;
+run `tposd-setup` once (below). `pkg delete tposd` removes it again.
+
+### Without the port
 
 ```
-su -m root -c 'make setup'   # once, as root
 make
-make install                 # ~/.local/bin/tposd and ~/.config/autostart/tposd.desktop
+su -m root -c 'make setup'   # install the dependencies, make install, tposd-setup
 ```
-`make install PREFIX=/usr/local` for a system-wide install (run as root).
-The Makefile works with both FreeBSD make and GNU make.
-Log out and in again (or run `~/.local/bin/tposd &`) to start it.
+`make install` alone installs under `PREFIX` (default `/usr/local`), with
+`DESTDIR` for staging. The Makefile works with both FreeBSD make and GNU make.
+
+### What gets installed
+
+| File (under `/usr/local`) | |
+|---|---|
+| `bin/tposd` | the watcher |
+| `etc/xdg/autostart/tposd.desktop` | starts it with the desktop session |
+| `lib/xfce4/panel/plugins/libtposd-panel.so`, `share/xfce4/panel/plugins/tposd-panel.desktop` | the panel plugin |
+| `libexec/tposd-mute-led`, `share/polkit-1/actions/org.tposd.mute-led.policy` | the LED helper and its polkit policy (see below) |
+| `libexec/thinkpad-micmute`, `etc/devd/thinkpad-micmute.conf` | the mic-mute key (devd) |
+| `sbin/tposd-setup` | the system configuration, run once |
+
+### tposd-setup
+
+Run once as root after installing (`tposd-setup -n` shows the steps without
+doing them):
+- `acpi_ibm_load="YES"` and `acpi_call_load="YES"` in `/boot/loader.conf`,
+  and loads them now
+- the session part of `/usr/local/etc/pam.d/polkit-1` set to `pam_permit`, so
+  pkexec does not abort (see "pkexec aborts" below; original kept as
+  `polkit-1.orig`)
+- restarts devd, so it reads the mic-mute rule
+- OSS `pcm` at 1.00 on the default mixer, saved to `/var/db/mixerN-state`
+
+Then log out and in again (tposd starts with the session) and add the panel
+item (below).
 
 ## Configure XFCE
 
 **Brightness keys → tposd.** Settings → Keyboard → Application Shortcuts, or:
 ```
-xfconf-query -c xfce4-keyboard-shortcuts -n -t string -p /commands/custom/XF86MonBrightnessUp   -s "$HOME/.local/bin/tposd brightness +10"
-xfconf-query -c xfce4-keyboard-shortcuts -n -t string -p /commands/custom/XF86MonBrightnessDown -s "$HOME/.local/bin/tposd brightness -10"
+xfconf-query -c xfce4-keyboard-shortcuts -n -t string -p /commands/custom/XF86MonBrightnessUp   -s "tposd brightness +10"
+xfconf-query -c xfce4-keyboard-shortcuts -n -t string -p /commands/custom/XF86MonBrightnessDown -s "tposd brightness -10"
 ```
 and stop the power manager from handling them too (it cannot see the
 FreeBSD backlight anyway):
@@ -146,8 +181,8 @@ tposd pcm [+|-]N                             OSS pcm level, e.g. 100
 On the A475 the mic-mute key arrives only as an ACPI event (`notify=0x1b`),
 not as an X key. A devd rule runs a small script that toggles the microphone
 and its LED; tposd then shows the popup. The microphone switch in the panel
-plugin does the same. Both are in `contrib/` and are
-installed by `make setup`.
+plugin does the same. Both are in `contrib/`; `tposd-setup` restarts devd so
+it reads the rule.
 
 ## How the mute LED gets root
 
@@ -182,7 +217,7 @@ aborts (signal 6; `/var/log/messages` shows `pkexec ... exited on signal 6`).
 Authorization itself has already succeeded at that point. This affects every
 pkexec user, e.g. xfce4-power-manager's backlight helper too. Fix it by giving
 polkit-1 a session stack without `pam_lastlog` (auth and account are
-unchanged). `make setup` does this (only if the line is still
+unchanged). `tposd-setup` does this (only if the line is still
 `session include system`; the original is kept as `polkit-1.orig`). By hand,
 as root:
 ```
@@ -216,6 +251,8 @@ Brightness, PCM and microphone work on any FreeBSD laptop.
 | `tposd-panel.c` | UI | GTK widgets: renders the `ctl` state, passes user actions to `ctl_set_*()` |
 | `tposd.c` | watcher | notifications and LED sync, uses `hw.c` |
 | `tposd-mute-led.c` | root helper | run through pkexec |
+| `contrib/` | system | devd rule and script for the mic-mute key; `tposd-setup` |
+| `port/sysutils/tposd` | packaging | FreeBSD port |
 
 The UI never calls the hardware or pkexec itself, and never waits: an early
 version ran pkexec synchronously inside a GTK handler while the popup held a

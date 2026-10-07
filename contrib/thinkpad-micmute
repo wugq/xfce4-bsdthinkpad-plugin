@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: BSD-2-Clause
 # Toggle the microphone mute and the mic-mute LED.
 # Run by devd on the ThinkPad mic-mute key (ACPI IBM notify 0x1b),
-# see /usr/local/etc/devd/thinkpad-micmute.conf
+# see etc/devd/thinkpad-micmute.conf under the install prefix
 mixer mic.mute=toggle >/dev/null
 if mixer mic.mute | grep -q "mic.mute=on"; then
     sysctl dev.acpi_ibm.0.mic_led=1 >/dev/null

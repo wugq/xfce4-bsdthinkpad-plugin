@@ -1,0 +1,69 @@
+#!/bin/sh
+# SPDX-License-Identifier: BSD-2-Clause
+#
+# tposd-setup -- the system configuration tposd needs; run once as root
+# after installing tposd (package, port or "make install").
+#
+# Installing does not change system configuration; this script does, and
+# says what it does:
+#   - load acpi_ibm and acpi_call now and at boot (/boot/loader.conf)
+#   - give pkexec's PAM service a session stack without pam_lastlog, whose
+#     "Last login" message makes pkexec abort (original kept as .orig)
+#   - restart devd, so it reads the mic-mute rule
+#   - set the OSS "pcm" level of the default mixer to 1.00 and save it
+#
+# Usage: tposd-setup [-n]     -n: only show what would be done
+
+set -e
+
+POLKITPAM=@PREFIX@/etc/pam.d/polkit-1
+
+dry=
+if [ "$1" = "-n" ]; then
+	dry=echo
+elif [ -n "$1" ]; then
+	echo "usage: tposd-setup [-n]" >&2
+	exit 2
+fi
+if [ -z "$dry" ] && [ "$(id -u)" -ne 0 ]; then
+	echo "tposd-setup: run as root (or -n to only show the steps)" >&2
+	exit 1
+fi
+
+step() {
+	echo "==> $*"
+}
+
+step "kernel modules acpi_ibm and acpi_call, now and at boot"
+$dry sysrc -f /boot/loader.conf acpi_ibm_load=YES acpi_call_load=YES
+$dry kldload -n acpi_ibm
+$dry kldload -n acpi_call
+
+step "pkexec: session stack without pam_lastlog in $POLKITPAM"
+if grep -q '^session[[:space:]]*include[[:space:]]*system$' "$POLKITPAM"; then
+	$dry sed -i.orig 's/^session[[:space:]]*include[[:space:]]*system$/session    required     pam_permit.so/' "$POLKITPAM"
+	echo "    original kept as $POLKITPAM.orig"
+else
+	echo "    already done (or changed by hand); left alone"
+fi
+
+step "devd: read the mic-mute rule"
+$dry service devd restart
+
+step "OSS pcm of the default mixer at 1.00, saved for the next boot"
+unit=$(sysctl -n hw.snd.default_unit)
+if [ -z "$dry" ]; then
+	mixer pcm=1.00 >/dev/null
+	mixer -f "/dev/mixer$unit" -o > "/var/db/mixer$unit-state"
+else
+	echo "mixer pcm=1.00"
+	echo "mixer -f /dev/mixer$unit -o > /var/db/mixer$unit-state"
+fi
+
+# Left over from versions that used sudo
+if [ -e @PREFIX@/etc/sudoers.d/tposd ]; then
+	step "remove the old sudo rule"
+	$dry rm -f @PREFIX@/etc/sudoers.d/tposd
+fi
+
+echo "Done.  Log out and in again; add the panel item \"ThinkPad Controls\"."

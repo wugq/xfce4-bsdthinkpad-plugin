@@ -4,5 +4,5 @@ notify 10 {
 	match "system"		"ACPI";
 	match "subsystem"	"IBM";
 	match "notify"		"0x1b";
-	action "/usr/local/libexec/thinkpad-micmute";
+	action "@LIBEXECDIR@/thinkpad-micmute";
 };

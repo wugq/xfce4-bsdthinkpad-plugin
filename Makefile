@@ -2,24 +2,33 @@
 #
 #   make                   build tposd, tposd-mute-led and the XFCE panel
 #                          plugin libtposd-panel.so
-#   make install           tposd to ~/.local/bin, plus XFCE autostart
-#                          (PREFIX=... to change)
-#   make setup             as root, once: packages, kernel modules, the
-#                          mute LED helper and its polkit policy, the
-#                          mic-mute devd rule, the panel plugin, OSS pcm
-#                          at 1.00, the pkexec PAM fix (FreeBSD only)
+#   make install           install under PREFIX (default /usr/local); with
+#                          DESTDIR for staging (ports, packages)
+#   make setup             as root, without the port: install the
+#                          dependencies, "make install", then tposd-setup
+#                          (kernel modules, pkexec PAM fix, devd, OSS pcm)
+#   make dist              source tarball for the port (needs git)
 #   make CFLAGS="-O0 -g3"  build for debugging
 #   make clean
 
+VERSION    = 0.1.0
+
 PROG       = tposd
 HELPER     = tposd-mute-led
-PREFIX    ?= $(HOME)/.local
-LIBEXECDIR = /usr/local/libexec
-POLKITDIR  = /usr/local/share/polkit-1/actions
-POLKITPAM  = /usr/local/etc/pam.d/polkit-1
 PLUGIN     = libtposd-panel.so
-PLUGINDIR  = /usr/local/lib/xfce4/panel/plugins
-PLUGINDATA = /usr/local/share/xfce4/panel/plugins
+
+PREFIX    ?= /usr/local
+LOCALBASE ?= /usr/local
+DESTDIR   ?=
+BINDIR     = $(PREFIX)/bin
+SBINDIR    = $(PREFIX)/sbin
+LIBEXECDIR = $(PREFIX)/libexec
+POLKITDIR  = $(PREFIX)/share/polkit-1/actions
+PLUGINDIR  = $(PREFIX)/lib/xfce4/panel/plugins
+PLUGINDATA = $(PREFIX)/share/xfce4/panel/plugins
+AUTOSTART  = $(PREFIX)/etc/xdg/autostart
+DEVDDIR    = $(PREFIX)/etc/devd
+
 CC        ?= cc
 CFLAGS    ?= -O2 -pipe
 CFLAGS    += -Wall -Wextra
@@ -30,7 +39,13 @@ PANEL_CFLAGS  != pkg-config --cflags libxfce4panel-2.0 gtk+-3.0
 PANEL_LIBS    != pkg-config --libs libxfce4panel-2.0 gtk+-3.0
 HW_CFLAGS      = -DMUTE_LED_HELPER='"$(LIBEXECDIR)/$(HELPER)"'
 
-all: $(PROG) $(HELPER) $(PLUGIN)
+# Files made from templates: @PREFIX@, @BINDIR@ and @LIBEXECDIR@ filled in
+GENERATED  = tposd.desktop org.tposd.mute-led.policy \
+	     contrib/thinkpad-micmute.conf contrib/tposd-setup
+SUBST      = sed -e 's|@PREFIX@|$(PREFIX)|g' -e 's|@BINDIR@|$(BINDIR)|g' \
+		 -e 's|@LIBEXECDIR@|$(LIBEXECDIR)|g'
+
+all: $(PROG) $(HELPER) $(PLUGIN) $(GENERATED)
 
 $(PROG): tposd.c hw.c hw.h
 	$(CC) $(CFLAGS) $(HW_CFLAGS) $(NOTIFY_CFLAGS) -o $(PROG) \
@@ -41,42 +56,46 @@ $(PLUGIN): tposd-panel.c ctl.c ctl.h hw.c hw.h
 	    -o $(PLUGIN) tposd-panel.c ctl.c hw.c $(PANEL_LIBS) -lmixer
 
 $(HELPER): tposd-mute-led.c
-	$(CC) $(CFLAGS) -o $(HELPER) tposd-mute-led.c
+	$(CC) $(CFLAGS) -DACPI_CALL='"$(LOCALBASE)/sbin/acpi_call"' \
+	    -o $(HELPER) tposd-mute-led.c
 
-install: $(PROG)
-	install -d $(PREFIX)/bin $(HOME)/.config/autostart
-	install -m 755 $(PROG) $(PREFIX)/bin/$(PROG)
-	sed "s#@BINDIR@#$(PREFIX)/bin#" tposd.desktop.in > $(HOME)/.config/autostart/tposd.desktop
+tposd.desktop: tposd.desktop.in
+	$(SUBST) tposd.desktop.in > $@
+org.tposd.mute-led.policy: org.tposd.mute-led.policy.in
+	$(SUBST) org.tposd.mute-led.policy.in > $@
+contrib/thinkpad-micmute.conf: contrib/thinkpad-micmute.conf.in
+	$(SUBST) contrib/thinkpad-micmute.conf.in > $@
+contrib/tposd-setup: contrib/tposd-setup.in
+	$(SUBST) contrib/tposd-setup.in > $@
+
+install: all
+	install -d $(DESTDIR)$(BINDIR) $(DESTDIR)$(SBINDIR) \
+	    $(DESTDIR)$(LIBEXECDIR) $(DESTDIR)$(POLKITDIR) \
+	    $(DESTDIR)$(PLUGINDIR) $(DESTDIR)$(PLUGINDATA) \
+	    $(DESTDIR)$(AUTOSTART) $(DESTDIR)$(DEVDDIR)
+	install -m 755 $(PROG) $(DESTDIR)$(BINDIR)/$(PROG)
+	install -m 755 contrib/tposd-setup $(DESTDIR)$(SBINDIR)/tposd-setup
+	install -m 755 $(HELPER) $(DESTDIR)$(LIBEXECDIR)/$(HELPER)
+	install -m 755 contrib/thinkpad-micmute \
+	    $(DESTDIR)$(LIBEXECDIR)/thinkpad-micmute
+	install -m 644 org.tposd.mute-led.policy \
+	    $(DESTDIR)$(POLKITDIR)/org.tposd.mute-led.policy
+	install -m 755 $(PLUGIN) $(DESTDIR)$(PLUGINDIR)/$(PLUGIN)
+	install -m 644 tposd-panel.desktop \
+	    $(DESTDIR)$(PLUGINDATA)/tposd-panel.desktop
+	install -m 644 tposd.desktop $(DESTDIR)$(AUTOSTART)/tposd.desktop
+	install -m 644 contrib/thinkpad-micmute.conf \
+	    $(DESTDIR)$(DEVDDIR)/thinkpad-micmute.conf
+
+# Without the port; as root (e.g. "su -m root -c 'make setup'")
+setup: install
+	pkg install -y libnotify acpi_call polkit consolekit2 xfce4-panel
+	$(SBINDIR)/tposd-setup
+
+dist:
+	git archive --prefix=$(PROG)-$(VERSION)/ -o $(PROG)-$(VERSION).tar.gz HEAD
 
 clean:
-	rm -f $(PROG) $(HELPER) $(PLUGIN)
+	rm -f $(PROG) $(HELPER) $(PLUGIN) $(GENERATED)
 
-# System-wide part; run as root (e.g. "su -m root -c 'make setup'")
-setup: $(HELPER) $(PLUGIN)
-	pkg install -y libnotify acpi_call polkit consolekit2 xfce4-panel
-	sysrc -f /boot/loader.conf acpi_ibm_load=YES acpi_call_load=YES
-	kldload -n acpi_ibm
-	kldload -n acpi_call
-	install -d $(LIBEXECDIR) $(POLKITDIR) /usr/local/etc/devd
-	install -o root -g wheel -m 755 $(HELPER) $(LIBEXECDIR)/$(HELPER)
-	sed "s#@LIBEXECDIR@#$(LIBEXECDIR)#" org.tposd.mute-led.policy.in > $(POLKITDIR)/org.tposd.mute-led.policy
-	chmod 644 $(POLKITDIR)/org.tposd.mute-led.policy
-	@# pkexec aborts when pam_lastlog (session part of "system") prints
-	@# "Last login"; give polkit-1 a session stack without it.  Auth and
-	@# account stay as they are.  Original kept as polkit-1.orig.
-	if grep -q '^session[[:space:]]*include[[:space:]]*system$$' $(POLKITPAM); then \
-	    sed -i.orig 's/^session[[:space:]]*include[[:space:]]*system$$/session    required     pam_permit.so/' $(POLKITPAM); \
-	fi
-	install -m 755 contrib/thinkpad-micmute $(LIBEXECDIR)/thinkpad-micmute
-	install -m 644 contrib/thinkpad-micmute.conf /usr/local/etc/devd/thinkpad-micmute.conf
-	install -d $(PLUGINDIR) $(PLUGINDATA)
-	install -m 755 $(PLUGIN) $(PLUGINDIR)/$(PLUGIN)
-	install -m 644 tposd-panel.desktop $(PLUGINDATA)/tposd-panel.desktop
-	service devd restart
-	mixer pcm=1.00
-	for m in /dev/mixer[0-9]*; do \
-	    n=$${m#/dev/mixer}; mixer -f $$m -o > /var/db/mixer$$n-state; \
-	done
-	rm -f /usr/local/etc/sudoers.d/tposd
-
-.PHONY: all install clean setup
+.PHONY: all install setup dist clean
