@@ -21,6 +21,8 @@
  * Usage:
  *   tposd [-n] [-i ms]          watch and notify (run from autostart)
  *   tposd brightness [+|-]N     change brightness, e.g. +10, -10, 50
+ *   tposd pcm [+|-]N            change the OSS "pcm" level of the default
+ *                               mixer (pulseaudio does not manage it)
  */
 
 #include <err.h>
@@ -38,6 +40,7 @@
 
 static int interval_ms = 200;		/* how often to poll */
 static int drive_leds = 1;		/* set the mute LEDs (via pkexec) */
+static int led_warned;			/* reported a helper failure */
 
 /* Last seen values; -1 = unknown / not available */
 static int last_brightness = -1;
@@ -47,13 +50,20 @@ static int last_micmute = -1;
 /* One notification per kind, updated in place so new ones replace old ones */
 static NotifyNotification *n_brightness, *n_mute, *n_mic;
 
-/* Set a mute LED; if the helper is missing or refused, stop trying */
+/*
+ * Set a mute LED.  On failure warn once and keep trying at the next change:
+ * the cause may be passing (e.g. polkit or PAM, see README).
+ */
 static void
 led(const char *which, int on)
 {
-	if (drive_leds && hw_set_led(which, on) != 0) {
-		warnx("%s failed; not driving the mute LEDs", MUTE_LED_HELPER);
-		drive_leds = 0;
+	if (!drive_leds)
+		return;
+	if (hw_set_led(which, on) == 0)
+		led_warned = 0;
+	else if (!led_warned) {
+		warnx("%s %s %d failed (pkexec)", MUTE_LED_HELPER, which, on);
+		led_warned = 1;
 	}
 }
 
@@ -151,7 +161,7 @@ watch(void)
 	g_main_loop_run(loop);
 }
 
-/* ---- tposd brightness [+|-]N ------------------------------------------ */
+/* ---- tposd brightness|pcm [+|-]N ------------------------------------------ */
 
 /*
  * "+N" / "-N" change the value by N, "N" sets it.  Prints the new value.
@@ -184,6 +194,7 @@ usage(void)
 	fprintf(stderr,
 	    "usage: tposd [-n] [-i interval-ms]\n"
 	    "       tposd brightness [+|-]N\n"
+	    "       tposd pcm [+|-]N\n"
 	    "  -n  do not drive the mute LEDs\n"
 	    "  -i  poll interval in milliseconds (default 200)\n");
 	exit(2);
@@ -197,6 +208,8 @@ main(int argc, char *argv[])
 	if (argc == 3 && strcmp(argv[1], "brightness") == 0)
 		return set_cmd("brightness", argv[2], hw_get_brightness,
 		    hw_set_brightness);
+	if (argc == 3 && strcmp(argv[1], "pcm") == 0)
+		return set_cmd("pcm", argv[2], hw_get_pcm, hw_set_pcm);
 
 	while ((ch = getopt(argc, argv, "ni:")) != -1) {
 		switch (ch) {

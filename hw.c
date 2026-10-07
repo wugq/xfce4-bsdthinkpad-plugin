@@ -80,11 +80,56 @@ hw_set_hwmute(int on)
 	return hw_set_led("speaker", on);
 }
 
-/* ---- microphone mute: mixer(3) ------------------------------------------ */
+/* ---- mixer channels: mixer(3) ------------------------------------------- */
 /*
  * mixer_open() reads the current state, so open the mixer for every call;
  * cheap enough for a few calls per second.
  */
+
+static int
+get_volume(int devno)
+{
+	struct mixer *m;
+	struct mix_dev *d;
+	int r = -1;
+
+	if ((m = mixer_open(NULL)) == NULL)
+		return -1;
+	if ((d = mixer_get_dev(m, devno)) != NULL)
+		r = MIX_VOLDENORM((d->vol.left + d->vol.right) / 2.0f);
+	mixer_close(m);
+	return r;
+}
+
+static int
+set_volume(int devno, int value)
+{
+	struct mixer *m;
+	mix_volume_t v;
+	int r = -1;
+
+	if ((m = mixer_open(NULL)) == NULL)
+		return -1;
+	/* mixer_set_vol() works on m->dev, which mixer_get_dev() does not set */
+	if ((m->dev = mixer_get_dev(m, devno)) != NULL) {
+		v.left = v.right = MIX_VOLNORM(clamp(value));
+		r = mixer_set_vol(m, v);
+	}
+	mixer_close(m);
+	return r;
+}
+
+int
+hw_get_pcm(void)
+{
+	return get_volume(SOUND_MIXER_PCM);
+}
+
+int
+hw_set_pcm(int value)
+{
+	return set_volume(SOUND_MIXER_PCM, value);
+}
 
 static float
 level(struct mixer *m, int devno)
@@ -131,7 +176,7 @@ hw_set_micmute(int on)
 
 	if ((m = mixer_open(NULL)) == NULL)
 		return -1;
-	if (mixer_get_dev(m, SOUND_MIXER_MIC) != NULL)
+	if ((m->dev = mixer_get_dev(m, SOUND_MIXER_MIC)) != NULL)
 		r = mixer_set_mute(m, on ? MIX_MUTE : MIX_UNMUTE);
 	mixer_close(m);
 	return r;

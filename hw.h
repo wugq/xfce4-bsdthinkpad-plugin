@@ -30,7 +30,14 @@ int	hw_get_hwmute(void);
 int	hw_set_hwmute(int on);
 
 /*
- * Default mixer, mixer(3), read only: unit N of /dev/mixerN and the OSS
+ * Default mixer, mixer(3): OSS "pcm" level 0..100.  pulseaudio (module-oss)
+ * sets "vol" but does not reliably manage "pcm", which limits what you hear.
+ */
+int	hw_get_pcm(void);
+int	hw_set_pcm(int value);
+
+/*
+ * Default mixer, read only: unit N of /dev/mixerN and the OSS
  * levels of "vol" and "pcm", 0.0..1.0 as mixer(8) shows them (-1 when the
  * channel is missing).  pulseaudio (module-oss) sets "vol"; "pcm" it does
  * not reliably manage.

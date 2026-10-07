@@ -27,13 +27,16 @@ volume. It only adds what the PulseAudio plugin can not see on FreeBSD:
 | Brightness keys and popup | — | yes |
 | Speaker mute key (muted in hardware by the EC) + its LED | — | yes |
 | Microphone mute key + its LED | — | yes |
+| OSS `pcm` level | — | yes: PCM slider in the panel plugin, `tposd pcm N` |
 
 With `module-oss` the PulseAudio sink has hardware volume control
 (`pactl list sinks` shows `HW_VOLUME_CTRL`): its volume is the OSS `vol` of the
 sound card. The OSS `pcm` level is not reliably managed by PulseAudio (it
 sometimes follows, mostly not), and what you hear is limited by both. The
-panel plugin's tooltip shows the OSS `vol` and `pcm` of the default mixer, so a
-low `pcm` is easy to spot; set it with `mixer pcm=1.00`.
+panel plugin has a PCM slider for it, and its tooltip shows the OSS `vol` and
+`pcm` of the default mixer, so a low `pcm` is easy to spot. Leave `pcm` at
+1.00 (`make setup` sets it and saves it to `/var/db/mixerN-state`) and use
+the PulseAudio plugin for everyday volume.
 
 Written and tested on a ThinkPad A475 (AMD) with FreeBSD 15.1 and XFCE.
 
@@ -63,6 +66,9 @@ so pressing a key several times shows one popup, not a stack.
 - the mic-mute devd rule and script from `contrib/`
 - the panel plugin: `/usr/local/lib/xfce4/panel/plugins/libtposd-panel.so` and
   `/usr/local/share/xfce4/panel/plugins/tposd-panel.desktop`
+- OSS `pcm` at 1.00 on the default mixer, saved to `/var/db/mixerN-state`
+- the session part of `/usr/local/etc/pam.d/polkit-1` set to `pam_permit`, so
+  pkexec does not abort (see "pkexec aborts" below)
 
 ## Build and install
 
@@ -114,9 +120,10 @@ the brightness. Hover for a summary, which follows the keys while the pointer
 stays there (as the PulseAudio plugin's tooltip does). Click for:
 
 ```
- ☀  ━━━━━━━━━●━━━━━   78%     brightness
- 🔈 Speaker          [ on ]   hardware mute, same as the mute key; LED included
- 🎤 Microphone       [ on ]   microphone mute; the LED follows
+ ☀  Brightness  ━━━━━━━━●━━━━   78%   backlight(9)
+ 🔊 PCM (OSS)   ━━━━━━━━━━━━●  100%   OSS pcm of the default mixer
+ 🔈 Speaker                  [ on ]   EC hardware mute (ACPI SSMS), LED included
+ 🎤 Microphone               [ on ]   OSS mic mute, LED included
 ```
 
 The popup takes no keyboard grab, so the brightness and volume keys keep
@@ -129,6 +136,7 @@ hardware while open, so keys pressed meanwhile show up at once.
 ```
 tposd [-n] [-i interval-ms]                  watch and notify (started by autostart)
 tposd brightness [+|-]N                      e.g. +10, -10, or 50 to set
+tposd pcm [+|-]N                             OSS pcm level, e.g. 100
   -n  do not drive the mute LEDs
   -i  poll interval in milliseconds (default 200)
 ```
@@ -161,9 +169,26 @@ follows the same pattern as `xfce4-power-manager` and its
 pkexec /usr/local/libexec/tposd-mute-led mic 1   # from ssh: "Not authorized"
   ```
 
-If the helper is missing or refused, tposd simply stops driving the LED and
-still shows the notifications. Running `pkexec` from an ssh shell is refused
+If the helper fails, tposd logs it once, still shows the notifications and
+tries again at the next change. Running `pkexec` from an ssh shell is refused
 even for the same user, because that shell is not the active console session.
+
+### pkexec aborts: "pam_conversation_function: code should not be reached"
+
+On FreeBSD `/usr/local/etc/pam.d/polkit-1` includes `system`, whose session
+part has `pam_lastlog`. Once root has a previous login record, `pam_lastlog`
+wants to print "Last login: ...", and pkexec, which allows no PAM messages,
+aborts (signal 6; `/var/log/messages` shows `pkexec ... exited on signal 6`).
+Authorization itself has already succeeded at that point. This affects every
+pkexec user, e.g. xfce4-power-manager's backlight helper too. Fix it by giving
+polkit-1 a session stack without `pam_lastlog` (auth and account are
+unchanged). `make setup` does this (only if the line is still
+`session include system`; the original is kept as `polkit-1.orig`). By hand,
+as root:
+```
+sed -i.orig 's/^session[[:space:]]*include[[:space:]]*system$/session    required     pam_permit.so/' /usr/local/etc/pam.d/polkit-1
+```
+To undo: `mv /usr/local/etc/pam.d/polkit-1.orig /usr/local/etc/pam.d/polkit-1`.
 
 ## Other ThinkPads
 
@@ -180,7 +205,21 @@ acpidump -dt | grep -n "Method (SSMS"
 /usr/local/libexec/tposd-mute-led speaker 1   # LED on (also mutes the speaker)
 /usr/local/libexec/tposd-mute-led speaker 0   # LED off
 ```
-Brightness and microphone work on any FreeBSD laptop.
+Brightness, PCM and microphone work on any FreeBSD laptop.
+
+## Source layout
+
+| File | Layer | |
+|---|---|---|
+| `hw.c`, `hw.h` | hardware | backlight(9), mixer(3), acpi_ibm(4) sysctls; no GLib, no UI |
+| `ctl.c`, `ctl.h` | logic | state of the controls, polling, requests; root requests (pkexec) run asynchronously and the state shows the requested value meanwhile; reports changes through a callback. GLib only, no GTK |
+| `tposd-panel.c` | UI | GTK widgets: renders the `ctl` state, passes user actions to `ctl_set_*()` |
+| `tposd.c` | watcher | notifications and LED sync, uses `hw.c` |
+| `tposd-mute-led.c` | root helper | run through pkexec |
+
+The UI never calls the hardware or pkexec itself, and never waits: an early
+version ran pkexec synchronously inside a GTK handler while the popup held a
+grab, and the plugin crashed (`_XAllocID` assertion in Xlib).
 
 ## License
 

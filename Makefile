@@ -6,8 +6,8 @@
 #                          (PREFIX=... to change)
 #   make setup             as root, once: packages, kernel modules, the
 #                          mute LED helper and its polkit policy, the
-#                          mic-mute devd rule, the panel plugin
-#                          (FreeBSD only)
+#                          mic-mute devd rule, the panel plugin, OSS pcm
+#                          at 1.00, the pkexec PAM fix (FreeBSD only)
 #   make CFLAGS="-O0 -g3"  build for debugging
 #   make clean
 
@@ -16,6 +16,7 @@ HELPER     = tposd-mute-led
 PREFIX    ?= $(HOME)/.local
 LIBEXECDIR = /usr/local/libexec
 POLKITDIR  = /usr/local/share/polkit-1/actions
+POLKITPAM  = /usr/local/etc/pam.d/polkit-1
 PLUGIN     = libtposd-panel.so
 PLUGINDIR  = /usr/local/lib/xfce4/panel/plugins
 PLUGINDATA = /usr/local/share/xfce4/panel/plugins
@@ -35,9 +36,9 @@ $(PROG): tposd.c hw.c hw.h
 	$(CC) $(CFLAGS) $(HW_CFLAGS) $(NOTIFY_CFLAGS) -o $(PROG) \
 	    tposd.c hw.c $(NOTIFY_LIBS) -lmixer
 
-$(PLUGIN): tposd-panel.c hw.c hw.h
+$(PLUGIN): tposd-panel.c ctl.c ctl.h hw.c hw.h
 	$(CC) $(CFLAGS) -fPIC -shared $(HW_CFLAGS) $(PANEL_CFLAGS) \
-	    -o $(PLUGIN) tposd-panel.c hw.c $(PANEL_LIBS) -lmixer
+	    -o $(PLUGIN) tposd-panel.c ctl.c hw.c $(PANEL_LIBS) -lmixer
 
 $(HELPER): tposd-mute-led.c
 	$(CC) $(CFLAGS) -o $(HELPER) tposd-mute-led.c
@@ -60,12 +61,22 @@ setup: $(HELPER) $(PLUGIN)
 	install -o root -g wheel -m 755 $(HELPER) $(LIBEXECDIR)/$(HELPER)
 	sed "s#@LIBEXECDIR@#$(LIBEXECDIR)#" org.tposd.mute-led.policy.in > $(POLKITDIR)/org.tposd.mute-led.policy
 	chmod 644 $(POLKITDIR)/org.tposd.mute-led.policy
+	@# pkexec aborts when pam_lastlog (session part of "system") prints
+	@# "Last login"; give polkit-1 a session stack without it.  Auth and
+	@# account stay as they are.  Original kept as polkit-1.orig.
+	if grep -q '^session[[:space:]]*include[[:space:]]*system$$' $(POLKITPAM); then \
+	    sed -i.orig 's/^session[[:space:]]*include[[:space:]]*system$$/session    required     pam_permit.so/' $(POLKITPAM); \
+	fi
 	install -m 755 contrib/thinkpad-micmute $(LIBEXECDIR)/thinkpad-micmute
 	install -m 644 contrib/thinkpad-micmute.conf /usr/local/etc/devd/thinkpad-micmute.conf
 	install -d $(PLUGINDIR) $(PLUGINDATA)
 	install -m 755 $(PLUGIN) $(PLUGINDIR)/$(PLUGIN)
 	install -m 644 tposd-panel.desktop $(PLUGINDATA)/tposd-panel.desktop
 	service devd restart
+	mixer pcm=1.00
+	for m in /dev/mixer[0-9]*; do \
+	    n=$${m#/dev/mixer}; mixer -f $$m -o > /var/db/mixer$$n-state; \
+	done
 	rm -f /usr/local/etc/sudoers.d/tposd
 
 .PHONY: all install clean setup
