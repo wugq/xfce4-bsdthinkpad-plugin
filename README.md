@@ -66,6 +66,19 @@ so pressing a key several times shows one popup, not a stack.
 
 ## Install
 
+### Binary package from a release
+
+Each [release](https://github.com/wugq/xfce4-bsdthinkpad-plugin/releases)
+has packages for FreeBSD 14 and 15 (amd64), built by GitHub Actions from the
+tag (`.github/workflows/release.yml`). Download the one for your FreeBSD
+version and, as root:
+```
+pkg install ./xfce4-bsdthinkpad-plugin-0.2.0-FreeBSD-15-amd64.pkg
+```
+pkg installs the dependencies from the FreeBSD package repositories. Then
+run `bsdthinkpad-setup` (below). Newer releases are not picked up by
+`pkg upgrade`; install the new package the same way.
+
 ### As a package (port)
 
 The port is in `port/sysutils/xfce4-bsdthinkpad-plugin`; it fetches the
