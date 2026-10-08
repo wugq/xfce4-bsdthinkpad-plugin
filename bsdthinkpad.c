@@ -53,6 +53,13 @@
 #include "hw.h"
 
 #define TIMEOUT_MS	1500
+/*
+ * After a brightness change, poll fast for a while, so that the notification's
+ * bar follows a key held down or the panel icon scrolled step by step instead
+ * of jumping several steps at a time.
+ */
+#define FAST_MS		30
+#define FAST_FOR_US	(2 * G_USEC_PER_SEC)
 
 static int interval_ms = 200;		/* how often to poll */
 static int drive_leds = 1;		/* set the mute LEDs (via pkexec) */
@@ -62,6 +69,8 @@ static int led_warned;			/* reported a helper failure */
 static int last_brightness = -1;
 static int last_hwmute = -1;
 static int last_micmute = -1;
+static gint64 last_change;		/* g_get_monotonic_time() of the last
+					   brightness change */
 
 /* One notification per kind, updated in place so new ones replace old ones */
 static NotifyNotification *n_brightness, *n_mute, *n_mic;
@@ -98,6 +107,9 @@ show(NotifyNotification **n, const char *summary, const char *body,
 	if (*n == NULL) {
 		*n = notify_notification_new(summary, body, icon);
 		notify_notification_set_timeout(*n, TIMEOUT_MS);
+		/* An on-screen display: keep it out of the notification log */
+		notify_notification_set_hint(*n, "transient",
+		    g_variant_new_boolean(TRUE));
 	} else {
 		notify_notification_update(*n, summary, body, icon);
 	}
@@ -111,10 +123,9 @@ show(NotifyNotification **n, const char *summary, const char *body,
 
 /* ---- the watch loop ----------------------------------------------------- */
 
-static gboolean
-poll_once(gpointer data)
+static void
+poll_once(int first)
 {
-	int first = GPOINTER_TO_INT(data);
 	int b, hw, mic;
 	char text[32];
 
@@ -125,6 +136,7 @@ poll_once(gpointer data)
 			/* No theme has per-level brightness icons */
 			show(&n_brightness, "Brightness", text,
 			    "display-brightness-symbolic", b);
+			last_change = g_get_monotonic_time();
 		}
 		last_brightness = b;
 	}
@@ -150,8 +162,20 @@ poll_once(gpointer data)
 			    "audio-input-microphone", -1);
 		last_micmute = mic;
 	}
+}
 
-	return G_SOURCE_CONTINUE;
+/* Poll, then come back soon after a brightness change, else after -i ms */
+static gboolean
+poll_tick(gpointer data)
+{
+	guint ms = (guint)interval_ms;
+
+	(void)data;
+	poll_once(0);
+	if (g_get_monotonic_time() - last_change < FAST_FOR_US && ms > FAST_MS)
+		ms = FAST_MS;
+	g_timeout_add(ms, poll_tick, NULL);
+	return G_SOURCE_REMOVE;
 }
 
 /*
@@ -192,9 +216,9 @@ watch(void)
 		check_env_readable();
 
 	/* Learn the current state (and set the LEDs) without notifying */
-	poll_once(GINT_TO_POINTER(1));
+	poll_once(1);
 
-	g_timeout_add((guint)interval_ms, poll_once, GINT_TO_POINTER(0));
+	g_timeout_add((guint)interval_ms, poll_tick, NULL);
 	loop = g_main_loop_new(NULL, FALSE);
 	g_main_loop_run(loop);
 }

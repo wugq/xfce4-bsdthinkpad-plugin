@@ -142,30 +142,6 @@ hw_set_pcm(int value)
 	return set_volume(SOUND_MIXER_PCM, value);
 }
 
-static float
-level(struct mixer *m, int devno)
-{
-	struct mix_dev *d;
-
-	if ((d = select_dev(m, devno)) == NULL)
-		return -1;
-	return (d->vol.left + d->vol.right) / 2.0f;
-}
-
-int
-hw_get_oss_levels(int *unit, float *vol, float *pcm)
-{
-	struct mixer *m;
-
-	if ((m = mixer_open(NULL)) == NULL)
-		return -1;
-	*unit = m->unit;
-	*vol = level(m, SOUND_MIXER_VOLUME);
-	*pcm = level(m, SOUND_MIXER_PCM);
-	mixer_close(m);
-	return 0;
-}
-
 /*
  * Microphone mute: the "rec" channel of every mixer, as "mixer -a" walks
  * them.  set < 0 only reads: returns 1 if all are muted, 0 if not, -1 if no

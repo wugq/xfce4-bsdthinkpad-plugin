@@ -80,6 +80,8 @@ The options are as follows:
 Poll every
 .Ar interval
 milliseconds, 50 to 60000 (default 200).
+For two seconds after a brightness change it polls every 30 milliseconds, so
+that the notification's bar follows the keys or the scroll wheel step by step.
 .It Fl n
 Do not set the mute LEDs.
 .El
@@ -99,7 +101,11 @@ and
 .It Cm pcm Oo Cm + | Cm \- Oc Ns Ar N
 The same for the OSS
 .Dq pcm
-level of the default mixer, which PulseAudio does not reliably manage.
+level of the default mixer.
+PulseAudio overwrites it with its volume
+(the OSS
+.Dq vol )
+whenever it changes the volume.
 .It Cm micmute Op Cm on | off | toggle
 Mute
 .Pq Cm on

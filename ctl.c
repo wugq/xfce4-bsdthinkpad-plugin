@@ -37,13 +37,8 @@ read_hw(Ctl *ctl)
 	CtlState *s = &ctl->hw;
 
 	s->brightness = hw_get_brightness();
-	s->pcm = hw_get_pcm();
 	s->speaker_mute = hw_get_hwmute();
 	s->mic_mute = hw_get_micmute();
-	if (hw_get_oss_levels(&s->oss_unit, &s->oss_vol, &s->oss_pcm) != 0) {
-		s->oss_unit = -1;
-		s->oss_vol = s->oss_pcm = -1;
-	}
 }
 
 /* Combine the hardware state with pending requests; report a change */
@@ -154,20 +149,24 @@ ctl_set_brightness(Ctl *ctl, int value)
 	update(ctl);
 }
 
+/*
+ * The hardware rounds down (50 -> 49), so a small step up may not move the
+ * level at all: go further until it does, or until the end of the range.
+ */
 void
 ctl_step_brightness(Ctl *ctl, int step)
 {
-	int b = hw_get_brightness();
+	int b = hw_get_brightness(), dir = step > 0 ? 1 : -1, v;
 
-	if (b >= 0)
-		ctl_set_brightness(ctl, b + step);
-}
-
-void
-ctl_set_pcm(Ctl *ctl, int value)
-{
-	hw_set_pcm(value);
-	ctl_refresh(ctl);		/* also updates oss_pcm */
+	if (b < 0 || step == 0)
+		return;
+	for (v = CLAMP(b + step, 0, 100);; v += dir) {
+		hw_set_brightness(v);
+		if (hw_get_brightness() != b || v == 0 || v == 100)
+			break;
+	}
+	ctl->hw.brightness = hw_get_brightness();
+	update(ctl);
 }
 
 /* SSMS mutes and sets the LED together; one request at a time */

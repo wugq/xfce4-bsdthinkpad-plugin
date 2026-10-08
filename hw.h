@@ -31,18 +31,11 @@ int	hw_get_hwmute(void);
 
 /*
  * Default mixer, mixer(3): OSS "pcm" level 0..100.  pulseaudio (module-oss)
- * sets "vol" but does not reliably manage "pcm", which limits what you hear.
+ * writes it together with "vol" whenever it changes its volume, but reads
+ * only "vol"; for setting it by hand ("bsdthinkpad pcm").
  */
 int	hw_get_pcm(void);
 int	hw_set_pcm(int value);
-
-/*
- * Default mixer, read only: unit N of /dev/mixerN and the OSS
- * levels of "vol" and "pcm", 0.0..1.0 as mixer(8) shows them (-1 when the
- * channel is missing).  pulseaudio (module-oss) sets "vol"; "pcm" it does
- * not reliably manage.
- */
-int	hw_get_oss_levels(int *unit, float *vol, float *pcm);
 
 /*
  * Microphone mute 0/1: the recording level ("rec") of every mixer that has

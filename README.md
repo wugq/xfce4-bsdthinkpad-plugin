@@ -30,16 +30,16 @@ volume. It only adds what the PulseAudio plugin can not see on FreeBSD:
 | Brightness keys and popup | — | yes |
 | Speaker mute key (muted in hardware by the EC) + its LED | — | yes |
 | Microphone mute key + its LED | — | yes |
-| OSS `pcm` level | — | yes: PCM slider in the panel plugin, `bsdthinkpad pcm N` |
+| OSS `pcm` level | — | `bsdthinkpad pcm N` (command line only) |
 
 With `module-oss` the PulseAudio sink has hardware volume control
 (`pactl list sinks` shows `HW_VOLUME_CTRL`): its volume is the OSS `vol` of the
-sound card. The OSS `pcm` level is not reliably managed by PulseAudio (it
-sometimes follows, mostly not), and what you hear is limited by both. The
-panel plugin has a PCM slider for it, and its tooltip shows the OSS `vol` and
-`pcm` of the default mixer, so a low `pcm` is easy to spot. Leave `pcm` at
-1.00 (`bsdthinkpad-setup` sets it and saves it to `/var/db/mixerN-state`) and use
-the PulseAudio plugin for everyday volume.
+sound card. Whenever PulseAudio changes its volume it writes the OSS `pcm`
+level too, the same value as `vol`, but it reads only `vol`; so a `pcm` set by
+anything else is overwritten at the next volume change. The panel plugin leaves
+both alone; use the PulseAudio plugin for everyday volume.
+`bsdthinkpad-setup` sets `pcm` to 1.00 and saves it to `/var/db/mixerN-state`;
+`bsdthinkpad pcm N` changes it by hand if needed.
 
 **Tested on one machine only:** a ThinkPad A475 (AMD) with FreeBSD 15.1 and
 XFCE 4.20. Other ThinkPads and other FreeBSD versions have not been tried;
@@ -187,7 +187,6 @@ stays there (as the PulseAudio plugin's tooltip does). Click for:
 
 ```
  ☀  Brightness  ━━━━━━━━●━━━━   78%   backlight(9)
- 🔊 PCM (OSS)   ━━━━━━━━━━━━●  100%   OSS pcm of the default mixer
  🔈 Speaker                  [ on ]   EC hardware mute (ACPI SSMS), LED included
  🎤 Microphone               [ on ]   recording level of all mixers, LED included
 ```
@@ -331,7 +330,7 @@ acpidump -dt | grep -n "Method (SSMS"
 /usr/local/libexec/bsdthinkpad-mute-led speaker 1   # LED on (also mutes the speaker)
 /usr/local/libexec/bsdthinkpad-mute-led speaker 0   # LED off
 ```
-Brightness (`backlight(9)`), PCM and the microphone mute use no ThinkPad
+Brightness (`backlight(9)`) and the microphone mute use no ThinkPad
 interface and should work on other FreeBSD laptops too (untested).
 
 ## Source layout
