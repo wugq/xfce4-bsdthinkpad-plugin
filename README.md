@@ -77,7 +77,7 @@ has packages for FreeBSD 14 and 15 (amd64), built by GitHub Actions from the
 tag (`.github/workflows/release.yml`). Download the one for your FreeBSD
 version and, as root:
 ```
-pkg install ./xfce4-bsdthinkpad-plugin-0.2.1-FreeBSD-15-amd64.pkg
+pkg install ./xfce4-bsdthinkpad-plugin-0.2.2-FreeBSD-15-amd64.pkg
 ```
 pkg installs the dependencies from the FreeBSD package repositories. Then
 run `bsdthinkpad-setup` (below). Newer releases are not picked up by
@@ -86,7 +86,7 @@ run `bsdthinkpad-setup` (below). Newer releases are not picked up by
 ### As a package (port)
 
 The port is in `port/sysutils/xfce4-bsdthinkpad-plugin`; it fetches the
-release (tag `v0.2.1`) from GitHub. It is not in the FreeBSD ports tree, but
+release (tag `v0.2.2`) from GitHub. It is not in the FreeBSD ports tree, but
 it does not need to be: a port directory works from anywhere, as long as the
 ports framework (`/usr/ports/Mk`) is installed. As root:
 ```
@@ -99,8 +99,8 @@ cd xfce4-bsdthinkpad-plugin/port/sysutils/xfce4-bsdthinkpad-plugin
 
 # 3. build the package and install it
 make install-missing-packages   # dependencies as binary packages (pkg)
-make package                    # work/pkg/xfce4-bsdthinkpad-plugin-0.2.1.pkg
-pkg install work/pkg/xfce4-bsdthinkpad-plugin-0.2.1.pkg
+make package                    # work/pkg/xfce4-bsdthinkpad-plugin-0.2.2.pkg
+pkg install work/pkg/xfce4-bsdthinkpad-plugin-0.2.2.pkg
 make clean
 ```
 Without `make install-missing-packages`, the ports framework would build the
