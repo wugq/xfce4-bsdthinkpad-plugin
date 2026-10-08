@@ -186,16 +186,36 @@ the brightness. Hover for a summary, which follows the keys while the pointer
 stays there (as the PulseAudio plugin's tooltip does). Click for:
 
 ```
- ☀  Brightness  ━━━━━━━━●━━━━   78%   backlight(9)
- 🔈 Speaker                  [ on ]   EC hardware mute (ACPI SSMS), LED included
- 🎤 Microphone               [ on ]   recording level of all mixers, LED included
+ ☀  ━━━━━━━━●━━━━   78%       backlight(9)
+ ──────────────────────
+ 🔈 Speaker        [ on ]     EC hardware mute (ACPI SSMS), LED included
+ 🎤 Microphone     [ on ]     recording level of all mixers, LED included
 ```
 
-Like the PulseAudio plugin's popup, it grabs keyboard and pointer while open:
-the brightness and volume keys work again once it is closed (a click
-outside, Escape, or the panel button closes it). Items the machine does not have (no
-backlight, no `acpi_ibm`, no mixer with a recording level) are hidden. The popup re-reads the
-hardware while open, so keys pressed meanwhile show up at once.
+The popup is a menu, like the PulseAudio plugin's: it grabs keyboard and
+pointer while open, so the brightness and volume keys work again once it is
+closed (a click outside, Escape, or the panel icon closes it). A click on a
+switch's row flips it and leaves the menu open. Items the machine does not
+have (no backlight, no `acpi_ibm`, no mixer with a recording level) are
+hidden. The menu re-reads the hardware while open, so keys pressed meanwhile
+show up at once.
+
+### Debug messages
+
+Off unless asked for, as with the other panel plugins. The plugin runs in a
+process of the panel's (`wrapper-2.0`) and writes to the panel's standard
+error, so restart the panel with `PANEL_DEBUG` set (a comma separated list;
+`all` turns on the panel's own messages too):
+```
+xfce4-panel -q
+PANEL_DEBUG=bsdthinkpad-plugin xfce4-panel > /tmp/panel.log 2>&1 &
+tail -f /tmp/panel.log | grep bsdthinkpad-plugin
+```
+They tell what the menu, the slider, the switches and the scroll wheel did,
+what brightness was asked for and what the hardware took, and the root
+helper's requests and results. `G_MESSAGES_DEBUG=bsdthinkpad-plugin` works
+too. Log out and in (or run `xfce4-panel -q; xfce4-panel &` without it) to
+turn them off again.
 
 ## Usage
 
@@ -349,6 +369,12 @@ interface and should work on other FreeBSD laptops too (untested).
 The UI never calls the hardware or pkexec itself, and never waits: an early
 version ran pkexec synchronously inside a GTK handler while the popup held a
 grab, and the plugin crashed (`_XAllocID` assertion in Xlib).
+
+The menu follows the official panel plugins: a `GtkMenu` popped up with
+`xfce_panel_plugin_popup_menu()`, as in the PulseAudio and power manager
+plugins. Inside a menu the pointer's events go to the menu item, not to the
+widgets in it, so the brightness item passes a press on its slider on to the
+slider (which then grabs the pointer), and keeps the release from the menu.
 
 ## License
 

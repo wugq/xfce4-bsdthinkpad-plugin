@@ -51,6 +51,8 @@ update(Ctl *ctl)
 		s.speaker_mute = ctl->want_speaker;
 	if (ctl->valid && memcmp(&s, &ctl->state, sizeof(s)) == 0)
 		return;
+	g_debug("state: brightness %d, speaker mute %d, mic mute %d",
+	    s.brightness, s.speaker_mute, s.mic_mute);
 	ctl->state = s;
 	ctl->valid = TRUE;
 	if (ctl->changed != NULL)
@@ -98,7 +100,8 @@ run_done(GPid pid, gint status, gpointer data)
 	Run *run = data;
 	Ctl *ctl = run->ctl;
 
-	(void)status;
+	g_debug("%s helper done, %s", run->speaker ? "speaker" : "mic",
+	    g_spawn_check_wait_status(status, NULL) ? "ok" : "failed");
 	g_spawn_close_pid(pid);
 	if (run->speaker)
 		ctl->want_speaker = -1;
@@ -122,8 +125,11 @@ run_helper(Ctl *ctl, const char *which, int on, int speaker)
 	Run *run;
 	GPid pid;
 
-	if (!g_file_test(MUTE_LED_HELPER, G_FILE_TEST_IS_EXECUTABLE))
+	if (!g_file_test(MUTE_LED_HELPER, G_FILE_TEST_IS_EXECUTABLE)) {
+		g_debug("%s: not installed", MUTE_LED_HELPER);
 		return FALSE;
+	}
+	g_debug("pkexec %s %s %s", MUTE_LED_HELPER, which, argv[3]);
 	if (!g_spawn_async(NULL, argv, NULL, G_SPAWN_SEARCH_PATH |
 	    G_SPAWN_DO_NOT_REAP_CHILD | G_SPAWN_STDOUT_TO_DEV_NULL |
 	    G_SPAWN_STDERR_TO_DEV_NULL, NULL, NULL, &pid, &error)) {
@@ -146,6 +152,7 @@ ctl_set_brightness(Ctl *ctl, int value)
 {
 	hw_set_brightness(value);
 	ctl->hw.brightness = hw_get_brightness();
+	g_debug("brightness: set %d, got %d", value, ctl->hw.brightness);
 	update(ctl);
 }
 
@@ -166,6 +173,8 @@ ctl_step_brightness(Ctl *ctl, int step)
 			break;
 	}
 	ctl->hw.brightness = hw_get_brightness();
+	g_debug("brightness: step %+d from %d, set %d, got %d", step, b, v,
+	    ctl->hw.brightness);
 	update(ctl);
 }
 
@@ -174,8 +183,12 @@ void
 ctl_set_speaker_mute(Ctl *ctl, int mute)
 {
 	mute = mute != 0;
-	if (ctl->want_speaker >= 0 || ctl->hw.speaker_mute < 0)
+	if (ctl->want_speaker >= 0 || ctl->hw.speaker_mute < 0) {
+		g_debug("speaker mute %d: refused (%s)", mute,
+		    ctl->want_speaker >= 0 ? "a request is pending" :
+		    "no acpi_ibm");
 		return;
+	}
 	if (mute != ctl->hw.speaker_mute &&
 	    run_helper(ctl, "speaker", mute, 1))
 		ctl->want_speaker = mute;
@@ -193,6 +206,8 @@ ctl_set_mic_mute(Ctl *ctl, int mute)
 	mute = mute != 0;
 	if (hw_set_micmute(mute) == 0)
 		run_helper(ctl, "mic", mute, 0);
+	else
+		g_debug("mic mute %d: the mixers can not be changed", mute);
 	ctl_refresh(ctl);
 }
 

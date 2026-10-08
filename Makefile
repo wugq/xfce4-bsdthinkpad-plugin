@@ -57,6 +57,7 @@ $(PROG): bsdthinkpad.c hw.c hw.h
 
 $(PLUGIN): bsdthinkpad-plugin.c ctl.c ctl.h hw.c hw.h
 	$(CC) $(CFLAGS) -fPIC -shared $(HW_CFLAGS) $(PANEL_CFLAGS) \
+	    -DG_LOG_DOMAIN='"bsdthinkpad-plugin"' -DVERSION='"$(VERSION)"' \
 	    -o $(PLUGIN) bsdthinkpad-plugin.c ctl.c hw.c $(PANEL_LIBS) -lmixer
 
 $(HELPER): bsdthinkpad-mute-led.c

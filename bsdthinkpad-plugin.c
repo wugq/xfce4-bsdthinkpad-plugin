@@ -242,6 +242,7 @@ static gboolean
 on_scroll(GtkWidget *w, GdkEventScroll *ev, Panel *p)
 {
 	(void)w;
+	g_debug("scroll: direction %d", ev->direction);
 	if (ev->direction == GDK_SCROLL_UP)
 		ctl_step_brightness(p->ctl, SCROLL_STEP);
 	else if (ev->direction == GDK_SCROLL_DOWN)
@@ -304,8 +305,11 @@ on_button_press(GtkWidget *w, GdkEventButton *ev, Panel *p)
 		 * GTK does not show the menu, and says nothing, when it can not
 		 * grab the pointer: do not leave the button pressed
 		 */
-		if (!gtk_widget_get_visible(p->menu))
+		if (!gtk_widget_get_visible(p->menu)) {
+			g_debug("menu: not shown (no pointer grab?)");
 			gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(w), FALSE);
+		} else
+			g_debug("menu: open");
 		update_polling(p);
 	}
 	return TRUE;
@@ -315,6 +319,7 @@ static void
 on_menu_hide(GtkWidget *menu, Panel *p)
 {
 	(void)menu;
+	g_debug("menu: closed");
 	p->dragging = FALSE;
 	gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(p->button), FALSE);
 	update_polling(p);
@@ -345,6 +350,7 @@ on_slider_item_press(GtkWidget *item, GdkEventButton *ev, Panel *p)
 {
 	if (ev->type == GDK_BUTTON_PRESS &&
 	    on_widget(item, p->bright_scale, ev->x, ev->y)) {
+		g_debug("slider: pressed");
 		p->dragging = TRUE;
 		gtk_widget_event(p->bright_scale, (GdkEvent *)ev);
 	}
@@ -361,6 +367,7 @@ on_slider_item_release(GtkWidget *item, GdkEventButton *ev, Panel *p)
 	(void)item;
 	(void)ev;
 	if (p->dragging) {
+		g_debug("slider: released");
 		p->dragging = FALSE;
 		g_idle_add(render_slider_idle, p);
 	}
@@ -379,6 +386,7 @@ on_slider_item_scroll(GtkWidget *item, GdkEventScroll *ev, Panel *p)
 static void
 flip_switch(GtkWidget *sw)
 {
+	g_debug("switch: flipped by its row");
 	gtk_switch_set_active(GTK_SWITCH(sw),
 	    !gtk_switch_get_active(GTK_SWITCH(sw)));
 }
@@ -551,10 +559,58 @@ on_free(XfcePanelPlugin *plugin, Panel *p)
 	g_free(p);
 }
 
+/*
+ * Debug messages (g_debug(), log domain "bsdthinkpad-plugin") are off unless
+ * asked for, as with the other panel plugins: PANEL_DEBUG=all or
+ * PANEL_DEBUG=bsdthinkpad-plugin (a comma separated list, as the panel
+ * takes it), or GLib's own G_MESSAGES_DEBUG=bsdthinkpad-plugin.  They go to
+ * the panel's standard error.
+ */
+static void
+init_debug(void)
+{
+	const char *env = g_getenv("PANEL_DEBUG");
+	char **domains, *value;
+	int i;
+
+	if (env == NULL)
+		return;
+	domains = g_strsplit(env, ",", -1);
+	for (i = 0; domains[i] != NULL; i++) {
+		g_strstrip(domains[i]);
+		if (g_str_equal(domains[i], "all") ||
+		    g_str_equal(domains[i], G_LOG_DOMAIN)) {
+			value = g_strjoin(" ", G_LOG_DOMAIN,
+			    g_getenv("G_MESSAGES_DEBUG"), NULL);
+#if GLIB_CHECK_VERSION(2, 80, 0)
+			/*
+			 * GLib reads G_MESSAGES_DEBUG once, at the first
+			 * message, and the wrapper process has logged already
+			 */
+			{
+				char **list = g_strsplit(value, " ", -1);
+
+				g_log_writer_default_set_debug_domains(
+				    (const char * const *)list);
+				g_strfreev(list);
+			}
+#else
+			g_setenv("G_MESSAGES_DEBUG", value, TRUE);
+#endif
+			g_free(value);
+			break;
+		}
+	}
+	g_strfreev(domains);
+}
+
 static void
 construct(XfcePanelPlugin *plugin)
 {
 	Panel *p = g_new0(Panel, 1);
+
+	init_debug();
+	g_debug("version %s", VERSION);
 
 	p->plugin = plugin;
 	p->button = xfce_panel_create_toggle_button();
