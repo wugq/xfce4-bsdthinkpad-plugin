@@ -48,7 +48,7 @@ typedef struct {
 	gboolean	 hovering;
 	gboolean	 dragging;	/* the brightness slider */
 
-	GtkWidget	*bright_row, *bright_scale, *bright_label;
+	GtkWidget	*bright_row, *bright_scale, *bright_label, *bright_sep;
 	GtkWidget	*speaker_row, *speaker_icon, *speaker_switch;
 	GtkWidget	*mic_row, *mic_icon, *mic_switch;
 
@@ -185,6 +185,8 @@ render(const CtlState *s, gpointer data)
 		render_speaker(p, s->speaker_mute);
 	if (all || s->mic_mute != o->mic_mute)
 		render_mic(p, s->mic_mute);
+	gtk_widget_set_visible(p->bright_sep, s->brightness >= 0 &&
+	    (s->speaker_mute >= 0 || s->mic_mute >= 0));
 	render_tooltip(p, s);
 
 	*o = *s;
@@ -298,6 +300,12 @@ on_button_press(GtkWidget *w, GdkEventButton *ev, Panel *p)
 		gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(w), TRUE);
 		xfce_panel_plugin_popup_menu(p->plugin, GTK_MENU(p->menu), w,
 		    (GdkEvent *)ev);
+		/*
+		 * GTK does not show the menu, and says nothing, when it can not
+		 * grab the pointer: do not leave the button pressed
+		 */
+		if (!gtk_widget_get_visible(p->menu))
+			gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(w), FALSE);
 		update_polling(p);
 	}
 	return TRUE;
@@ -328,8 +336,9 @@ on_widget(GtkWidget *from, GtkWidget *w, gdouble x, gdouble y)
 /*
  * In a menu the pointer's events go to the menu item, not to the widgets in
  * it, and a click chooses the item and closes the menu.  So a press on the
- * slider is passed on to it, and so is everything up to the release, which
- * may come anywhere in the menu; none of them reaches the menu.
+ * slider is passed on to it; the slider then grabs the pointer, and GTK
+ * gives it the motion and the release itself.  The release still reaches
+ * the item, and goes no further, so the menu does not take it as a click.
  */
 static gboolean
 on_slider_item_press(GtkWidget *item, GdkEventButton *ev, Panel *p)
@@ -342,39 +351,19 @@ on_slider_item_press(GtkWidget *item, GdkEventButton *ev, Panel *p)
 	return TRUE;
 }
 
-static gboolean
-on_menu_motion(GtkWidget *menu, GdkEventMotion *ev, Panel *p)
-{
-	(void)menu;
-	if (!p->dragging)
-		return FALSE;
-	gtk_widget_event(p->bright_scale, (GdkEvent *)ev);
-	return TRUE;
-}
-
 /*
  * Dragging ended: show the value the hardware took (see render_slider()),
- * once the scale has handled the release.  A release on the slider's item
- * never chooses it.
+ * once the slider has let go
  */
-static gboolean
-on_menu_release(GtkWidget *menu, GdkEventButton *ev, Panel *p)
-{
-	(void)menu;
-	if (p->dragging) {
-		gtk_widget_event(p->bright_scale, (GdkEvent *)ev);
-		p->dragging = FALSE;
-		g_idle_add(render_slider_idle, p);
-		return TRUE;
-	}
-	return FALSE;
-}
-
 static gboolean
 on_slider_item_release(GtkWidget *item, GdkEventButton *ev, Panel *p)
 {
 	(void)item;
-	on_menu_release(NULL, ev, p);
+	(void)ev;
+	if (p->dragging) {
+		p->dragging = FALSE;
+		g_idle_add(render_slider_idle, p);
+	}
 	return TRUE;
 }
 
@@ -432,17 +421,6 @@ fixed_width(GtkWidget *label, const char *widest)
 	g_object_unref(layout);
 }
 
-/* Name column, the same width in every row */
-static GtkWidget *
-name_label(GtkSizeGroup *names, const char *name)
-{
-	GtkWidget *label = gtk_label_new(name);
-
-	gtk_label_set_xalign(GTK_LABEL(label), 0.0);
-	gtk_size_group_add_widget(names, label);
-	return label;
-}
-
 /* A menu item holding a row of widgets */
 static GtkWidget *
 menu_row(GtkWidget *menu, GtkWidget *row, const char *tip)
@@ -456,26 +434,28 @@ menu_row(GtkWidget *menu, GtkWidget *row, const char *tip)
 	return item;
 }
 
-/* Icon, name, slider, percent */
+/*
+ * Icon, slider, percent; no name, as in the pulseaudio plugin's menu: the
+ * icon says what it is, and the menu stays narrow
+ */
 static GtkWidget *
-slider_row(GtkWidget *menu, GtkSizeGroup *names, const char *icon,
-    const char *name, const char *tip, GtkWidget **scale, GtkWidget **label)
+slider_row(GtkWidget *menu, const char *icon, const char *tip,
+    GtkWidget **scale, GtkWidget **label)
 {
 	GtkWidget *img = gtk_image_new_from_icon_name(icon, GTK_ICON_SIZE_MENU);
-	GtkWidget *row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+	/* Less than the other rows: the slider has room of its own at its ends */
+	GtkWidget *row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 4);
 
 	*scale = gtk_scale_new_with_range(GTK_ORIENTATION_HORIZONTAL, 0, 100,
 	    1);
 	gtk_scale_set_draw_value(GTK_SCALE(*scale), FALSE);
-	gtk_widget_set_size_request(*scale, 200, -1);
+	gtk_widget_set_size_request(*scale, 140, -1);
 	gtk_widget_set_hexpand(*scale, TRUE);
 	*label = gtk_label_new("0%");
 	gtk_label_set_xalign(GTK_LABEL(*label), 1.0);
 	fixed_width(*label, "100%");
 
 	gtk_box_pack_start(GTK_BOX(row), img, FALSE, FALSE, 0);
-	gtk_box_pack_start(GTK_BOX(row), name_label(names, name),
-	    FALSE, FALSE, 0);
 	gtk_box_pack_start(GTK_BOX(row), *scale, TRUE, TRUE, 0);
 	gtk_box_pack_start(GTK_BOX(row), *label, FALSE, FALSE, 0);
 	return menu_row(menu, row, tip);
@@ -483,16 +463,17 @@ slider_row(GtkWidget *menu, GtkSizeGroup *names, const char *icon,
 
 /* Icon, name, switch */
 static GtkWidget *
-switch_row(GtkWidget *menu, GtkSizeGroup *names, const char *name,
-    const char *tip, GtkWidget **icon, GtkWidget **sw)
+switch_row(GtkWidget *menu, const char *name, const char *tip,
+    GtkWidget **icon, GtkWidget **sw)
 {
 	GtkWidget *row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
-	GtkWidget *label = name_label(names, name);
+	GtkWidget *label = gtk_label_new(name);
 
 	*icon = gtk_image_new();
 	*sw = gtk_switch_new();
 	gtk_widget_set_valign(*sw, GTK_ALIGN_CENTER);
 
+	gtk_label_set_xalign(GTK_LABEL(label), 0.0);
 	gtk_box_pack_start(GTK_BOX(row), *icon, FALSE, FALSE, 0);
 	gtk_box_pack_start(GTK_BOX(row), label, TRUE, TRUE, 0);
 	gtk_box_pack_end(GTK_BOX(row), *sw, FALSE, FALSE, 0);
@@ -502,23 +483,25 @@ switch_row(GtkWidget *menu, GtkSizeGroup *names, const char *name,
 static void
 build_menu(Panel *p)
 {
-	GtkSizeGroup *names = gtk_size_group_new(GTK_SIZE_GROUP_HORIZONTAL);
-
 	p->menu = gtk_menu_new();
 	gtk_menu_attach_to_widget(GTK_MENU(p->menu), p->button, NULL);
+	/* No room for check marks on the left: our items have their own icons */
+	gtk_menu_set_reserve_toggle_size(GTK_MENU(p->menu), FALSE);
 
-	p->bright_row = slider_row(p->menu, names, ICON_BRIGHTNESS,
-	    "Brightness", "backlight(9): " HW_BACKLIGHT_DEV,
+	p->bright_row = slider_row(p->menu, ICON_BRIGHTNESS,
+	    "Brightness\nbacklight(9): " HW_BACKLIGHT_DEV,
 	    &p->bright_scale, &p->bright_label);
-	p->speaker_row = switch_row(p->menu, names, "Speaker",
+	/* Display apart from sound, as the pulseaudio plugin's groups */
+	p->bright_sep = gtk_separator_menu_item_new();
+	gtk_menu_shell_append(GTK_MENU_SHELL(p->menu), p->bright_sep);
+	p->speaker_row = switch_row(p->menu, "Speaker",
 	    "Hardware mute by the embedded controller (ACPI SSMS),\n"
 	    "same as the mute key; LED included",
 	    &p->speaker_icon, &p->speaker_switch);
-	p->mic_row = switch_row(p->menu, names, "Microphone",
+	p->mic_row = switch_row(p->menu, "Microphone",
 	    "Recording level of all sound devices, same as the mic-mute key; "
 	    "LED included",
 	    &p->mic_icon, &p->mic_switch);
-	g_object_unref(names);
 
 	g_signal_connect(p->bright_scale, "value-changed",
 	    G_CALLBACK(on_brightness), p);
@@ -529,10 +512,6 @@ build_menu(Panel *p)
 	    G_CALLBACK(on_slider_item_release), p);
 	g_signal_connect(p->bright_row, "scroll-event",
 	    G_CALLBACK(on_slider_item_scroll), p);
-	g_signal_connect(p->menu, "motion-notify-event",
-	    G_CALLBACK(on_menu_motion), p);
-	g_signal_connect(p->menu, "button-release-event",
-	    G_CALLBACK(on_menu_release), p);
 
 	g_signal_connect(p->speaker_switch, "notify::active",
 	    G_CALLBACK(on_speaker), p);
