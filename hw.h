@@ -37,6 +37,9 @@ int	hw_get_hwmute(void);
 int	hw_get_pcm(void);
 int	hw_set_pcm(int value);
 
+/* Default mixer, read only: OSS "vol" level 0..100 (PulseAudio's volume) */
+int	hw_get_volume(void);
+
 /*
  * Microphone mute 0/1: the recording level ("rec") of every mixer that has
  * one, so that all inputs are cut, whichever device a program records from

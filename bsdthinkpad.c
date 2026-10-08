@@ -60,6 +60,12 @@
  */
 #define FAST_MS		30
 #define FAST_FOR_US	(2 * G_USEC_PER_SEC)
+/*
+ * How long after the speaker was unmuted a change of the volume still counts
+ * as made by the same key: PulseAudio sets the volume a moment after the
+ * embedded controller unmuted
+ */
+#define UNMUTE_WAIT_MS	150
 
 static int interval_ms = 200;		/* how often to poll */
 static int drive_leds = 1;		/* set the mute LEDs (via pkexec) */
@@ -69,6 +75,9 @@ static int led_warned;			/* reported a helper failure */
 static int last_brightness = -1;
 static int last_hwmute = -1;
 static int last_micmute = -1;
+static int last_volume = -1;		/* OSS "vol" */
+static int unmute_volume;		/* OSS "vol" when the speaker was
+					   unmuted */
 static gint64 last_change;		/* g_get_monotonic_time() of the last
 					   brightness change */
 
@@ -141,12 +150,29 @@ show_mute(NotifyNotification **n, const char *what, int muted,
 	show(n, summary, icon, -1);
 }
 
+/*
+ * The speaker was unmuted, UNMUTE_WAIT_MS ago, and the volume had not
+ * changed with it.  The embedded controller unmutes on the volume keys too;
+ * then PulseAudio changes the volume and shows it, and "Speaker on" would
+ * only repeat that.  So say it only if the volume has still not changed: the
+ * mute key (or the panel's switch) unmuted.  (At 100% the volume up key
+ * changes nothing; then it is said too.)
+ */
+static gboolean
+unmute_check(gpointer data)
+{
+	(void)data;
+	if (last_hwmute == 0 && hw_get_volume() == unmute_volume)
+		show_mute(&n_mute, "Speaker", 0, "audio-volume");
+	return G_SOURCE_REMOVE;
+}
+
 /* ---- the watch loop ----------------------------------------------------- */
 
 static void
 poll_once(int first)
 {
-	int b, hw, mic;
+	int b, hw, mic, vol;
 	char text[32];
 
 	b = hw_get_brightness();
@@ -163,12 +189,18 @@ poll_once(int first)
 	}
 
 	hw = hw_get_hwmute();
+	vol = hw_get_volume();
 	if (hw >= 0 && hw != last_hwmute) {
 		led("speaker", hw);
-		if (!first)
-			show_mute(&n_mute, "Speaker", hw, "audio-volume");
+		if (!first && hw)
+			show_mute(&n_mute, "Speaker", 1, "audio-volume");
+		else if (!first && vol == last_volume) {
+			unmute_volume = vol;
+			g_timeout_add(UNMUTE_WAIT_MS, unmute_check, NULL);
+		}
 		last_hwmute = hw;
 	}
+	last_volume = vol;
 
 	mic = hw_get_micmute();
 	if (mic >= 0 && mic != last_micmute) {

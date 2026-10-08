@@ -55,6 +55,10 @@ pressed, and sends no event.
 turns the mute LED on and off, which
 .Xr acpi_ibm 4
 does not.
+The volume keys unmute too; then PulseAudio changes the volume and shows it,
+and
+.Nm
+does not show the unmute as well.
 .It microphone mute
 the recording level
 .Pq Dq rec

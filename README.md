@@ -56,7 +56,11 @@ models are welcome.
 
 The watcher polls these values (default every 200 ms) and shows a notification
 whenever one changes, whoever changed it. Notifications are updated in place,
-so pressing a key several times shows one popup, not a stack.
+so pressing a key several times shows one popup, not a stack. One exception:
+the embedded controller also unmutes the speaker on the volume keys, and
+then the PulseAudio plugin shows the volume; bsdthinkpad says "Speaker on"
+only when the volume did not change with the unmute (the mute key, the panel
+switch).
 
 ## Requirements
 

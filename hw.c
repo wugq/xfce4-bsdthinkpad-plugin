@@ -142,6 +142,12 @@ hw_set_pcm(int value)
 	return set_volume(SOUND_MIXER_PCM, value);
 }
 
+int
+hw_get_volume(void)
+{
+	return get_volume(SOUND_MIXER_VOLUME);
+}
+
 /*
  * Microphone mute: the "rec" channel of every mixer, as "mixer -a" walks
  * them.  set < 0 only reads: returns 1 if all are muted, 0 if not, -1 if no
