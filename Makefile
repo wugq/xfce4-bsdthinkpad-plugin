@@ -12,7 +12,7 @@
 #   make clean
 
 PACKAGE    = xfce4-bsdthinkpad-plugin
-VERSION    = 0.2.0
+VERSION    = 0.2.1
 
 PROG       = bsdthinkpad
 HELPER     = bsdthinkpad-mute-led

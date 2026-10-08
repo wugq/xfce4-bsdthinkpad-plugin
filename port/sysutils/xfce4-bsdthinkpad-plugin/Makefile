@@ -1,6 +1,6 @@
 PORTNAME=	xfce4-bsdthinkpad-plugin
 DISTVERSIONPREFIX=	v
-DISTVERSION=	0.2.0
+DISTVERSION=	0.2.1
 CATEGORIES=	sysutils xfce
 
 MAINTAINER=	wugq.dev@gmail.com
