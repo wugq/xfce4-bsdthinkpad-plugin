@@ -52,7 +52,7 @@
 
 #include "hw.h"
 
-#define TIMEOUT_MS	1500
+#define TIMEOUT_MS	2000		/* as the pulseaudio plugin's */
 /*
  * After a brightness change, poll fast for a while, so that the notification's
  * bar follows a key held down or the panel icon scrolled step by step instead
@@ -95,23 +95,24 @@ led(const char *which, int on)
 }
 
 /*
- * Show (or replace) a notification.  value >= 0 adds the "value" hint,
- * which notification daemons such as xfce4-notifyd draw as a bar.
+ * Show (or replace) a notification: a summary only, as the pulseaudio
+ * plugin and the power manager show theirs.  value >= 0 adds the "value"
+ * hint, which notification daemons such as xfce4-notifyd draw as a bar.
  */
 static void
-show(NotifyNotification **n, const char *summary, const char *body,
-    const char *icon, int value)
+show(NotifyNotification **n, const char *summary, const char *icon,
+    int value)
 {
 	GError *error = NULL;
 
 	if (*n == NULL) {
-		*n = notify_notification_new(summary, body, icon);
+		*n = notify_notification_new(summary, NULL, icon);
 		notify_notification_set_timeout(*n, TIMEOUT_MS);
 		/* An on-screen display: keep it out of the notification log */
 		notify_notification_set_hint(*n, "transient",
 		    g_variant_new_boolean(TRUE));
 	} else {
-		notify_notification_update(*n, summary, body, icon);
+		notify_notification_update(*n, summary, NULL, icon);
 	}
 	if (value >= 0)
 		notify_notification_set_hint_int32(*n, "value", value);
@@ -119,6 +120,36 @@ show(NotifyNotification **n, const char *summary, const char *body,
 		syslog(LOG_WARNING, "notification failed: %s", error->message);
 		g_error_free(error);
 	}
+}
+
+/*
+ * A mute changed: show it as the pulseaudio plugin does, "Volume 80%" or
+ * "Volume 80% (muted)" with the level as a bar, and its icons, base-muted,
+ * -low, -medium or -high (base: "audio-volume", "microphone-sensitivity").
+ * level < 0: not available.
+ */
+static void
+show_volume(NotifyNotification **n, int muted, int level, const char *base)
+{
+	char summary[32], icon[64];
+	const char *state;
+
+	if (muted || level == 0)
+		state = "muted";
+	else if (level >= 0 && level <= 30)
+		state = "low";
+	else if (level >= 0 && level <= 70)
+		state = "medium";
+	else
+		state = "high";
+	snprintf(icon, sizeof(icon), "%s-%s-symbolic", base, state);
+	if (level >= 0)
+		snprintf(summary, sizeof(summary), "Volume %d%%%s", level,
+		    muted ? " (muted)" : "");
+	else
+		snprintf(summary, sizeof(summary), "Volume%s",
+		    muted ? " (muted)" : "");
+	show(n, summary, icon, level);
 }
 
 /* ---- the watch loop ----------------------------------------------------- */
@@ -132,10 +163,11 @@ poll_once(int first)
 	b = hw_get_brightness();
 	if (b >= 0 && b != last_brightness) {
 		if (!first) {
-			snprintf(text, sizeof(text), "%d%%", b);
+			/* As the power manager words it */
+			snprintf(text, sizeof(text), "Brightness: %d%%", b);
 			/* No theme has per-level brightness icons */
-			show(&n_brightness, "Brightness", text,
-			    "display-brightness-symbolic", b);
+			show(&n_brightness, text, "display-brightness-symbolic",
+			    b);
 			last_change = g_get_monotonic_time();
 		}
 		last_brightness = b;
@@ -144,10 +176,10 @@ poll_once(int first)
 	hw = hw_get_hwmute();
 	if (hw >= 0 && hw != last_hwmute) {
 		led("speaker", hw);
+		/* The level: PulseAudio's volume, the OSS "vol" */
 		if (!first)
-			show(&n_mute, hw ? "Speaker muted" : "Speaker on",
-			    hw ? "Sound is off" : "Sound is on", hw ?
-			    "audio-volume-muted" : "audio-volume-high", -1);
+			show_volume(&n_mute, hw, hw_get_volume(),
+			    "audio-volume");
 		last_hwmute = hw;
 	}
 
@@ -155,11 +187,8 @@ poll_once(int first)
 	if (mic >= 0 && mic != last_micmute) {
 		led("mic", mic);
 		if (!first)
-			show(&n_mic,
-			    mic ? "Microphone muted" : "Microphone on",
-			    mic ? "Microphone is off" : "Microphone is on",
-			    mic ? "microphone-sensitivity-muted" :
-			    "audio-input-microphone", -1);
+			show_volume(&n_mic, mic, hw_get_rec(),
+			    "microphone-sensitivity");
 		last_micmute = mic;
 	}
 }

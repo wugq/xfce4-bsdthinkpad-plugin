@@ -38,6 +38,14 @@ int	hw_get_pcm(void);
 int	hw_set_pcm(int value);
 
 /*
+ * Default mixer, read only, 0..100: the OSS "vol" level (PulseAudio's
+ * volume, with module-oss) and the recording level "rec".  A muted channel
+ * keeps its level.
+ */
+int	hw_get_volume(void);
+int	hw_get_rec(void);
+
+/*
  * Microphone mute 0/1: the recording level ("rec") of every mixer that has
  * one, so that all inputs are cut, whichever device a program records from
  * (e.g. the internal microphone is often a device of its own, such as
