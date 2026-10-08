@@ -38,22 +38,15 @@ typedef struct {
 
 	GtkWidget	*button, *icon;
 	/*
-	 * A window placed next to the button (a GtkPopover would be clipped to
-	 * the plugin's small window).  Like the pulseaudio plugin's popup it
-	 * grabs keyboard and pointer while open, so the keys do nothing until
-	 * it closes; a click outside closes it.  We grab ourselves instead of
-	 * xfce_panel_plugin_popup_window(), which did not release the keyboard
-	 * when we closed the window, leaving all hotkeys dead; closing always
-	 * releases our grab.
+	 * A GtkMenu, as the pulseaudio and power manager plugins have: GTK and
+	 * the panel place it, grab keyboard and pointer while it is open (so
+	 * the keys do nothing until it closes), and close it on a click
+	 * outside, on the panel button, or on Escape.  Built once, popped up
+	 * again and again.
 	 */
-	GtkWidget	*popup;
-	gboolean	 grabbed;
+	GtkWidget	*menu;
 	gboolean	 hovering;
-	/*
-	 * The popup closed on a press on the panel button: the release that
-	 * follows must not toggle the button, and so the popup, on again.
-	 */
-	gboolean	 swallow_toggle;
+	gboolean	 dragging;	/* the brightness slider */
 
 	GtkWidget	*bright_row, *bright_scale, *bright_label;
 	GtkWidget	*speaker_row, *speaker_icon, *speaker_switch;
@@ -100,7 +93,7 @@ render_slider(Panel *p, GtkWidget *row, GtkWidget *scale, GtkWidget *label,
     gpointer handler, int v)
 {
 	gtk_widget_set_visible(row, v >= 0);
-	if (v < 0 || gtk_widget_has_grab(scale))
+	if (v < 0 || p->dragging)
 		return;
 	g_signal_handlers_block_by_func(scale, handler, p);
 	gtk_range_set_value(GTK_RANGE(scale), v);
@@ -242,20 +235,6 @@ render_slider_idle(gpointer data)
 	return G_SOURCE_REMOVE;
 }
 
-/*
- * Dragging ended: show the value the hardware took (see render_slider()).
- * The scale still holds its grab while this handler runs, so render from
- * the main loop, once it has let go.
- */
-static gboolean
-on_slider_released(GtkWidget *w, GdkEvent *ev, Panel *p)
-{
-	(void)w;
-	(void)ev;
-	g_idle_add(render_slider_idle, p);
-	return FALSE;
-}
-
 /* Scroll on the panel icon: brightness up/down */
 static gboolean
 on_scroll(GtkWidget *w, GdkEventScroll *ev, Panel *p)
@@ -270,12 +249,12 @@ on_scroll(GtkWidget *w, GdkEventScroll *ev, Panel *p)
 	return TRUE;
 }
 
-/* Poll while the popup is open or the pointer is on the icon */
+/* Poll while the menu is open or the pointer is on the icon */
 static void
 update_polling(Panel *p)
 {
 	ctl_set_polling(p->ctl,
-	    p->hovering || gtk_widget_get_visible(p->popup) ? POLL_MS : 0);
+	    p->hovering || gtk_widget_get_visible(p->menu) ? POLL_MS : 0);
 }
 
 static gboolean
@@ -298,168 +277,148 @@ on_leave(GtkWidget *w, GdkEventCrossing *ev, Panel *p)
 	return FALSE;
 }
 
-/* ---- popup window ------------------------------------------------------- */
-
-static void
-popup_show(Panel *p)
-{
-	gint x, y;
-
-	xfce_panel_plugin_block_autohide(p->plugin, TRUE);
-	gtk_widget_realize(p->popup);
-	xfce_panel_plugin_position_widget(p->plugin, p->popup, p->button,
-	    &x, &y);
-	gtk_window_move(GTK_WINDOW(p->popup), x, y);
-	gtk_window_present_with_time(GTK_WINDOW(p->popup),
-	    gtk_get_current_event_time());
-	update_polling(p);
-}
-
-/* Is the pointer on the panel button? */
-static gboolean
-pointer_on_button(Panel *p)
-{
-	GtkAllocation a;
-	GdkDevice *pointer;
-	gint ox, oy, x, y;
-
-	pointer = gdk_seat_get_pointer(gdk_display_get_default_seat(
-	    gtk_widget_get_display(p->button)));
-	gdk_device_get_position(pointer, NULL, &x, &y);
-	/* The button has no window of its own: allocation is in its parent's */
-	gdk_window_get_origin(gtk_widget_get_window(p->button), &ox, &oy);
-	gtk_widget_get_allocation(p->button, &a);
-	x -= ox + a.x;
-	y -= oy + a.y;
-	return x >= 0 && y >= 0 && x < a.width && y < a.height;
-}
-
-static void
-popup_hide(Panel *p)
-{
-	GdkEvent *ev = gtk_get_current_event();
-
-	/*
-	 * Closed by a press on the panel button (it reached the popup through
-	 * the grab): the release would toggle the button on again.
-	 */
-	if (ev != NULL) {
-		if (ev->type == GDK_BUTTON_PRESS && pointer_on_button(p))
-			p->swallow_toggle = TRUE;
-		gdk_event_free(ev);
-	}
-	if (p->grabbed) {
-		gdk_seat_ungrab(gdk_display_get_default_seat(
-		    gtk_widget_get_display(p->popup)));
-		p->grabbed = FALSE;
-	}
-	if (gtk_widget_get_visible(p->popup)) {
-		gtk_widget_hide(p->popup);
-		xfce_panel_plugin_block_autohide(p->plugin, FALSE);
-	}
-	if (gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(p->button)))
-		gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(p->button),
-		    FALSE);
-	update_polling(p);
-}
-
-static void
-on_toggled(GtkToggleButton *button, Panel *p)
-{
-	if (!gtk_toggle_button_get_active(button))
-		popup_hide(p);
-	else if (p->swallow_toggle) {
-		p->swallow_toggle = FALSE;
-		gtk_toggle_button_set_active(button, FALSE);
-	} else
-		popup_show(p);
-}
+/* ---- the menu ----------------------------------------------------------- */
 
 /*
- * A new click on the button: forget a swallow left over from a press that
- * went to the popup and so was never followed by a toggle.  This runs before
- * the button's own handler, which may close the popup and set it again.
+ * Left button on the panel icon: open the menu.  Handled on the press, as
+ * the pulseaudio and clock plugins do, and not passed on, so the toggle
+ * button does not toggle itself.  While the menu is open a click on the icon
+ * goes to the menu, which closes; the second branch is only a fallback.
  */
 static gboolean
 on_button_press(GtkWidget *w, GdkEventButton *ev, Panel *p)
 {
-	(void)w;
-	(void)ev;
-	p->swallow_toggle = FALSE;
-	return FALSE;
-}
-
-/* Grab once the window is on screen (a grab needs a viewable window) */
-static gboolean
-on_popup_map(GtkWidget *w, GdkEvent *ev, Panel *p)
-{
-	GdkSeat *seat = gdk_display_get_default_seat(gtk_widget_get_display(w));
-
-	(void)ev;
-	p->grabbed = gdk_seat_grab(seat, gtk_widget_get_window(w),
-	    GDK_SEAT_CAPABILITY_ALL, TRUE, NULL, NULL, NULL, NULL) ==
-	    GDK_GRAB_SUCCESS;
-	return FALSE;
-}
-
-/*
- * With the grab, a click outside the popup arrives at the popup's own
- * window: close.  (Clicks on our widgets go to them.)  Its x and y are not
- * always relative to the popup: a click on the panel button comes with the
- * button's own coordinates, which can fall inside the popup's area.  So
- * compare screen coordinates.
- */
-static gboolean
-on_popup_button(GtkWidget *w, GdkEventButton *ev, Panel *p)
-{
-	gint ox, oy;
-
-	if (ev->window != gtk_widget_get_window(w))
+	if (ev->button != 1)
 		return FALSE;
-	gdk_window_get_origin(ev->window, &ox, &oy);
-	if (ev->x_root >= ox && ev->y_root >= oy &&
-	    ev->x_root < ox + gtk_widget_get_allocated_width(w) &&
-	    ev->y_root < oy + gtk_widget_get_allocated_height(w))
-		return FALSE;
-	popup_hide(p);
+	if (ev->type != GDK_BUTTON_PRESS)
+		return TRUE;			/* double and triple clicks */
+	if (gtk_widget_get_visible(p->menu))
+		gtk_menu_popdown(GTK_MENU(p->menu));
+	else {
+		gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(w), TRUE);
+		xfce_panel_plugin_popup_menu(p->plugin, GTK_MENU(p->menu), w,
+		    (GdkEvent *)ev);
+		update_polling(p);
+	}
 	return TRUE;
 }
 
-/* Another program took the grab away (e.g. a menu): close */
-static gboolean
-on_popup_grab_broken(GtkWidget *w, GdkEventGrabBroken *ev, Panel *p)
+static void
+on_menu_hide(GtkWidget *menu, Panel *p)
 {
-	(void)w;
-	if (ev->grab_window == NULL) {
-		p->grabbed = FALSE;
-		popup_hide(p);
+	(void)menu;
+	p->dragging = FALSE;
+	gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(p->button), FALSE);
+	update_polling(p);
+	g_idle_add(render_slider_idle, p);
+}
+
+/* Are x, y (relative to from) on w? */
+static gboolean
+on_widget(GtkWidget *from, GtkWidget *w, gdouble x, gdouble y)
+{
+	gint wx, wy;
+
+	return gtk_widget_translate_coordinates(from, w, (gint)x, (gint)y,
+	    &wx, &wy) && wx >= 0 && wy >= 0 &&
+	    wx < gtk_widget_get_allocated_width(w) &&
+	    wy < gtk_widget_get_allocated_height(w);
+}
+
+/*
+ * In a menu the pointer's events go to the menu item, not to the widgets in
+ * it, and a click chooses the item and closes the menu.  So a press on the
+ * slider is passed on to it, and so is everything up to the release, which
+ * may come anywhere in the menu; none of them reaches the menu.
+ */
+static gboolean
+on_slider_item_press(GtkWidget *item, GdkEventButton *ev, Panel *p)
+{
+	if (ev->type == GDK_BUTTON_PRESS &&
+	    on_widget(item, p->bright_scale, ev->x, ev->y)) {
+		p->dragging = TRUE;
+		gtk_widget_event(p->bright_scale, (GdkEvent *)ev);
+	}
+	return TRUE;
+}
+
+static gboolean
+on_menu_motion(GtkWidget *menu, GdkEventMotion *ev, Panel *p)
+{
+	(void)menu;
+	if (!p->dragging)
+		return FALSE;
+	gtk_widget_event(p->bright_scale, (GdkEvent *)ev);
+	return TRUE;
+}
+
+/*
+ * Dragging ended: show the value the hardware took (see render_slider()),
+ * once the scale has handled the release.  A release on the slider's item
+ * never chooses it.
+ */
+static gboolean
+on_menu_release(GtkWidget *menu, GdkEventButton *ev, Panel *p)
+{
+	(void)menu;
+	if (p->dragging) {
+		gtk_widget_event(p->bright_scale, (GdkEvent *)ev);
+		p->dragging = FALSE;
+		g_idle_add(render_slider_idle, p);
+		return TRUE;
 	}
 	return FALSE;
 }
 
 static gboolean
-on_popup_key(GtkWidget *w, GdkEventKey *ev, Panel *p)
+on_slider_item_release(GtkWidget *item, GdkEventButton *ev, Panel *p)
 {
-	(void)w;
-	if (ev->keyval != GDK_KEY_Escape)
-		return FALSE;
-	popup_hide(p);
+	(void)item;
+	on_menu_release(NULL, ev, p);
 	return TRUE;
 }
 
+/* Scrolling on the slider's item, as on the panel icon */
 static gboolean
-on_popup_delete(GtkWidget *w, GdkEvent *ev, Panel *p)
+on_slider_item_scroll(GtkWidget *item, GdkEventScroll *ev, Panel *p)
 {
-	(void)w;
-	(void)ev;
-	popup_hide(p);
+	(void)item;
+	on_scroll(NULL, ev, p);
 	return TRUE;
+}
+
+static void
+flip_switch(GtkWidget *sw)
+{
+	gtk_switch_set_active(GTK_SWITCH(sw),
+	    !gtk_switch_get_active(GTK_SWITCH(sw)));
+}
+
+/*
+ * A click on a switch's row flips the switch, as one on the switch itself
+ * does, and keeps the menu open, so that both can be set at once.  Enter
+ * (the item's "activate") flips it too, and closes the menu.
+ */
+static gboolean
+on_switch_item_release(GtkWidget *item, GdkEventButton *ev, GtkWidget *sw)
+{
+	(void)item;
+	(void)ev;
+	flip_switch(sw);
+	return TRUE;
+}
+
+static void
+on_switch_item_activate(GtkMenuItem *item, GtkWidget *sw)
+{
+	(void)item;
+	flip_switch(sw);
 }
 
 /* ---- building the widgets ----------------------------------------------- */
 
 /*
- * Make a label as wide as the widest text it will show, so the popup does not
+ * Make a label as wide as the widest text it will show, so the menu does not
  * grow when the value reaches 100% (digits differ in width in most fonts)
  */
 static void
@@ -484,9 +443,22 @@ name_label(GtkSizeGroup *names, const char *name)
 	return label;
 }
 
+/* A menu item holding a row of widgets */
+static GtkWidget *
+menu_row(GtkWidget *menu, GtkWidget *row, const char *tip)
+{
+	GtkWidget *item = gtk_menu_item_new();
+
+	gtk_container_add(GTK_CONTAINER(item), row);
+	gtk_widget_set_tooltip_text(item, tip);
+	gtk_widget_show_all(item);
+	gtk_menu_shell_append(GTK_MENU_SHELL(menu), item);
+	return item;
+}
+
 /* Icon, name, slider, percent */
 static GtkWidget *
-slider_row(GtkGrid *grid, int top, GtkSizeGroup *names, const char *icon,
+slider_row(GtkWidget *menu, GtkSizeGroup *names, const char *icon,
     const char *name, const char *tip, GtkWidget **scale, GtkWidget **label)
 {
 	GtkWidget *img = gtk_image_new_from_icon_name(icon, GTK_ICON_SIZE_MENU);
@@ -506,14 +478,12 @@ slider_row(GtkGrid *grid, int top, GtkSizeGroup *names, const char *icon,
 	    FALSE, FALSE, 0);
 	gtk_box_pack_start(GTK_BOX(row), *scale, TRUE, TRUE, 0);
 	gtk_box_pack_start(GTK_BOX(row), *label, FALSE, FALSE, 0);
-	gtk_widget_set_tooltip_text(row, tip);
-	gtk_grid_attach(grid, row, 0, top, 1, 1);
-	return row;
+	return menu_row(menu, row, tip);
 }
 
 /* Icon, name, switch */
 static GtkWidget *
-switch_row(GtkGrid *grid, int top, GtkSizeGroup *names, const char *name,
+switch_row(GtkWidget *menu, GtkSizeGroup *names, const char *name,
     const char *tip, GtkWidget **icon, GtkWidget **sw)
 {
 	GtkWidget *row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
@@ -526,47 +496,25 @@ switch_row(GtkGrid *grid, int top, GtkSizeGroup *names, const char *name,
 	gtk_box_pack_start(GTK_BOX(row), *icon, FALSE, FALSE, 0);
 	gtk_box_pack_start(GTK_BOX(row), label, TRUE, TRUE, 0);
 	gtk_box_pack_end(GTK_BOX(row), *sw, FALSE, FALSE, 0);
-	gtk_widget_set_tooltip_text(row, tip);
-	gtk_grid_attach(grid, row, 0, top, 1, 1);
-	return row;
+	return menu_row(menu, row, tip);
 }
 
 static void
-build_popup(Panel *p)
+build_menu(Panel *p)
 {
-	GtkWidget *grid;
 	GtkSizeGroup *names = gtk_size_group_new(GTK_SIZE_GROUP_HORIZONTAL);
 
-	p->popup = gtk_window_new(GTK_WINDOW_TOPLEVEL);
-	gtk_window_set_decorated(GTK_WINDOW(p->popup), FALSE);
-	gtk_window_set_resizable(GTK_WINDOW(p->popup), FALSE);
-	gtk_window_set_skip_taskbar_hint(GTK_WINDOW(p->popup), TRUE);
-	gtk_window_set_skip_pager_hint(GTK_WINDOW(p->popup), TRUE);
-	gtk_window_set_keep_above(GTK_WINDOW(p->popup), TRUE);
-	gtk_window_set_type_hint(GTK_WINDOW(p->popup),
-	    GDK_WINDOW_TYPE_HINT_UTILITY);
-	/*
-	 * Look like the other panel popups (pulseaudio, power manager), which
-	 * are menus: the theme's menu background and border, and about as
-	 * little room around the items as a menu item has.
-	 */
-	gtk_style_context_add_class(gtk_widget_get_style_context(p->popup),
-	    GTK_STYLE_CLASS_MENU);
+	p->menu = gtk_menu_new();
+	gtk_menu_attach_to_widget(GTK_MENU(p->menu), p->button, NULL);
 
-	grid = gtk_grid_new();
-	gtk_grid_set_row_spacing(GTK_GRID(grid), 4);
-	g_object_set(grid, "margin-start", 8, "margin-end", 8,
-	    "margin-top", 6, "margin-bottom", 6, NULL);
-
-	p->bright_row = slider_row(GTK_GRID(grid), 0, names,
-	    ICON_BRIGHTNESS, "Brightness",
-	    "backlight(9): " HW_BACKLIGHT_DEV,
+	p->bright_row = slider_row(p->menu, names, ICON_BRIGHTNESS,
+	    "Brightness", "backlight(9): " HW_BACKLIGHT_DEV,
 	    &p->bright_scale, &p->bright_label);
-	p->speaker_row = switch_row(GTK_GRID(grid), 1, names, "Speaker",
+	p->speaker_row = switch_row(p->menu, names, "Speaker",
 	    "Hardware mute by the embedded controller (ACPI SSMS),\n"
 	    "same as the mute key; LED included",
 	    &p->speaker_icon, &p->speaker_switch);
-	p->mic_row = switch_row(GTK_GRID(grid), 2, names, "Microphone",
+	p->mic_row = switch_row(p->menu, names, "Microphone",
 	    "Recording level of all sound devices, same as the mic-mute key; "
 	    "LED included",
 	    &p->mic_icon, &p->mic_switch);
@@ -574,25 +522,32 @@ build_popup(Panel *p)
 
 	g_signal_connect(p->bright_scale, "value-changed",
 	    G_CALLBACK(on_brightness), p);
-	g_signal_connect(p->bright_scale, "button-release-event",
-	    G_CALLBACK(on_slider_released), p);
+	gtk_widget_add_events(p->bright_row, GDK_SCROLL_MASK);
+	g_signal_connect(p->bright_row, "button-press-event",
+	    G_CALLBACK(on_slider_item_press), p);
+	g_signal_connect(p->bright_row, "button-release-event",
+	    G_CALLBACK(on_slider_item_release), p);
+	g_signal_connect(p->bright_row, "scroll-event",
+	    G_CALLBACK(on_slider_item_scroll), p);
+	g_signal_connect(p->menu, "motion-notify-event",
+	    G_CALLBACK(on_menu_motion), p);
+	g_signal_connect(p->menu, "button-release-event",
+	    G_CALLBACK(on_menu_release), p);
+
 	g_signal_connect(p->speaker_switch, "notify::active",
 	    G_CALLBACK(on_speaker), p);
+	g_signal_connect(p->speaker_row, "button-release-event",
+	    G_CALLBACK(on_switch_item_release), p->speaker_switch);
+	g_signal_connect(p->speaker_row, "activate",
+	    G_CALLBACK(on_switch_item_activate), p->speaker_switch);
 	g_signal_connect(p->mic_switch, "notify::active", G_CALLBACK(on_mic),
 	    p);
+	g_signal_connect(p->mic_row, "button-release-event",
+	    G_CALLBACK(on_switch_item_release), p->mic_switch);
+	g_signal_connect(p->mic_row, "activate",
+	    G_CALLBACK(on_switch_item_activate), p->mic_switch);
 
-	gtk_container_add(GTK_CONTAINER(p->popup), grid);
-	gtk_widget_show_all(grid);
-	gtk_widget_add_events(p->popup, GDK_BUTTON_PRESS_MASK);
-	g_signal_connect(p->popup, "map-event", G_CALLBACK(on_popup_map), p);
-	g_signal_connect(p->popup, "button-press-event",
-	    G_CALLBACK(on_popup_button), p);
-	g_signal_connect(p->popup, "grab-broken-event",
-	    G_CALLBACK(on_popup_grab_broken), p);
-	g_signal_connect(p->popup, "key-press-event", G_CALLBACK(on_popup_key),
-	    p);
-	g_signal_connect(p->popup, "delete-event", G_CALLBACK(on_popup_delete),
-	    p);
+	g_signal_connect(p->menu, "hide", G_CALLBACK(on_menu_hide), p);
 }
 
 /* ---- plugin ------------------------------------------------------------- */
@@ -612,7 +567,7 @@ on_free(XfcePanelPlugin *plugin, Panel *p)
 {
 	(void)plugin;
 	ctl_free(p->ctl);
-	gtk_widget_destroy(p->popup);
+	gtk_widget_destroy(p->menu);
 	g_free(p->tip);
 	g_free(p);
 }
@@ -627,7 +582,6 @@ construct(XfcePanelPlugin *plugin)
 	p->icon = gtk_image_new_from_icon_name(ICON_BRIGHTNESS,
 	    GTK_ICON_SIZE_BUTTON);
 	gtk_container_add(GTK_CONTAINER(p->button), p->icon);
-	g_signal_connect(p->button, "toggled", G_CALLBACK(on_toggled), p);
 	g_signal_connect(p->button, "button-press-event",
 	    G_CALLBACK(on_button_press), p);
 	g_signal_connect(p->button, "enter-notify-event", G_CALLBACK(on_enter),
@@ -648,7 +602,7 @@ construct(XfcePanelPlugin *plugin)
 	xfce_panel_plugin_add_action_widget(plugin, p->button);
 	xfce_panel_plugin_set_small(plugin, TRUE);
 
-	build_popup(p);
+	build_menu(p);
 	/* Widgets exist now: the first "changed" renders everything */
 	p->ctl = ctl_new(render, p);
 
