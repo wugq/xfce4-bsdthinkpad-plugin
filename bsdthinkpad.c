@@ -123,33 +123,22 @@ show(NotifyNotification **n, const char *summary, const char *icon,
 }
 
 /*
- * A mute changed: show it as the pulseaudio plugin does, "Volume 80%" or
- * "Volume 80% (muted)" with the level as a bar, and its icons, base-muted,
- * -low, -medium or -high (base: "audio-volume", "microphone-sensitivity").
- * level < 0: not available.
+ * A mute changed: its state only, no bar.  The pulseaudio plugin shows its
+ * volume with a bar on every volume key; on FreeBSD the mute is not part of
+ * that (the embedded controller mutes in hardware), and a second bar for
+ * the same volume would only repeat it.
  */
 static void
-show_volume(NotifyNotification **n, int muted, int level, const char *base)
+show_mute(NotifyNotification **n, const char *what, int muted,
+    const char *icon_base)
 {
 	char summary[32], icon[64];
-	const char *state;
 
-	if (muted || level == 0)
-		state = "muted";
-	else if (level >= 0 && level <= 30)
-		state = "low";
-	else if (level >= 0 && level <= 70)
-		state = "medium";
-	else
-		state = "high";
-	snprintf(icon, sizeof(icon), "%s-%s-symbolic", base, state);
-	if (level >= 0)
-		snprintf(summary, sizeof(summary), "Volume %d%%%s", level,
-		    muted ? " (muted)" : "");
-	else
-		snprintf(summary, sizeof(summary), "Volume%s",
-		    muted ? " (muted)" : "");
-	show(n, summary, icon, level);
+	snprintf(summary, sizeof(summary), "%s %s", what,
+	    muted ? "muted" : "on");
+	snprintf(icon, sizeof(icon), "%s-%s-symbolic", icon_base,
+	    muted ? "muted" : "high");
+	show(n, summary, icon, -1);
 }
 
 /* ---- the watch loop ----------------------------------------------------- */
@@ -176,10 +165,8 @@ poll_once(int first)
 	hw = hw_get_hwmute();
 	if (hw >= 0 && hw != last_hwmute) {
 		led("speaker", hw);
-		/* The level: PulseAudio's volume, the OSS "vol" */
 		if (!first)
-			show_volume(&n_mute, hw, hw_get_volume(),
-			    "audio-volume");
+			show_mute(&n_mute, "Speaker", hw, "audio-volume");
 		last_hwmute = hw;
 	}
 
@@ -187,7 +174,7 @@ poll_once(int first)
 	if (mic >= 0 && mic != last_micmute) {
 		led("mic", mic);
 		if (!first)
-			show_volume(&n_mic, mic, hw_get_rec(),
+			show_mute(&n_mic, "Microphone", mic,
 			    "microphone-sensitivity");
 		last_micmute = mic;
 	}
