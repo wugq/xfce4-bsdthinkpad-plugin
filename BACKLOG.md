@@ -18,8 +18,14 @@ its sliders are `XfpaScaleMenuItem` (a `GtkScale` in a menu item,
 GTK and the panel handle grab, closing and keyboard navigation. The power
 manager plugin uses a menu too (with a switch item).
 
-Before rewriting: look at more panel plugins (network, clock, ...) to see
-whether they all use a menu. The same applies to xfce4-bsdbluetooth-plugin.
+Survey (2026-10-09): nearly all official plugins use a GtkMenu with
+`xfce_panel_plugin_popup_menu()` (pulseaudio, power manager, clipman, xkb,
+notifications, window menu, tasklist, systray); the clock's calendar uses
+`xfce_panel_plugin_popup_window()` (4.19.0+); only whiskermenu makes its own
+window. So: rebuild the popup as a GtkMenu, the brightness slider as a scale
+menu item (as pulseaudio's / the power manager's) and the switches as the
+power manager's "Presentation mode" item. The same applies to
+xfce4-bsdbluetooth-plugin.
 
 ## Decided not to do
 
