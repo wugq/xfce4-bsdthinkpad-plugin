@@ -52,6 +52,10 @@
 
 #include "hw.h"
 
+#ifndef PACTL
+#define PACTL	"/usr/local/bin/pactl"
+#endif
+
 #define TIMEOUT_MS	2000		/* as the pulseaudio plugin's */
 /*
  * After a brightness change, poll fast for a while, so that the notification's
@@ -70,6 +74,7 @@
 static int interval_ms = 200;		/* how often to poll */
 static int drive_leds = 1;		/* set the mute LEDs (via pkexec) */
 static int led_warned;			/* reported a helper failure */
+static int sink_warned;			/* reported a pactl failure */
 
 /* Last seen values; -1 = unknown / not available */
 static int last_brightness = -1;
@@ -100,6 +105,29 @@ led(const char *which, int on)
 		    "the mute LED does not follow (logged once)",
 		    MUTE_LED_HELPER, which, on);
 		led_warned = 1;
+	}
+}
+
+/*
+ * Clear the PulseAudio sink mute.  The sink mute and the controller's
+ * speaker mute are independent, and on ThinkPads whose mute key also reaches
+ * the desktop (the pulseaudio panel plugin toggles the sink) the volume keys
+ * unmute the speaker in the controller but leave the sink muted, so the
+ * plugin's OSD keeps showing "muted" for an unmuted speaker.  Called when the
+ * hardware becomes unmuted.  The volume stays with the plugin; when the sink
+ * is not muted nothing changes and the plugin shows no OSD (the case on
+ * ThinkPads whose mute key never reaches the desktop).
+ */
+static void
+unmute_sink(void)
+{
+	if (system(PACTL " set-sink-mute @DEFAULT_SINK@ 0") == 0)
+		sink_warned = 0;
+	else if (!sink_warned) {
+		syslog(LOG_WARNING, "%s set-sink-mute failed; the speaker "
+		    "mute in PulseAudio may not follow the hardware "
+		    "(logged once)", PACTL);
+		sink_warned = 1;
 	}
 }
 
@@ -151,6 +179,21 @@ show_mute(NotifyNotification **n, const char *what, int muted,
 }
 
 /*
+ * Drop our speaker-mute OSD.  A volume key unmutes the speaker in the
+ * controller and PulseAudio then shows the volume; our "Speaker muted" would
+ * only linger, showing a mute icon for an unmuted speaker.
+ */
+static void
+close_mute(void)
+{
+	if (n_mute != NULL) {
+		notify_notification_close(n_mute, NULL);
+		g_object_unref(n_mute);
+		n_mute = NULL;
+	}
+}
+
+/*
  * The speaker was unmuted, UNMUTE_WAIT_MS ago, and the volume had not
  * changed with it.  The embedded controller unmutes on the volume keys too;
  * then PulseAudio changes the volume and shows it, and "Speaker on" would
@@ -162,8 +205,14 @@ static gboolean
 unmute_check(gpointer data)
 {
 	(void)data;
-	if (last_hwmute == 0 && hw_get_volume() == unmute_volume)
-		show_mute(&n_mute, "Speaker", 0, "audio-volume");
+	if (last_hwmute == 0) {
+		if (hw_get_volume() == unmute_volume)
+			show_mute(&n_mute, "Speaker", 0, "audio-volume");
+		else
+			/* a volume key unmuted and PulseAudio shows the
+			   volume: drop our stale "Speaker muted" OSD */
+			close_mute();
+	}
 	return G_SOURCE_REMOVE;
 }
 
@@ -192,12 +241,17 @@ poll_once(int first)
 	vol = hw_get_volume();
 	if (hw >= 0 && hw != last_hwmute) {
 		led("speaker", hw);
-		if (!first && hw)
+		if (!first && hw) {
 			show_mute(&n_mute, "Speaker", 1, "audio-volume");
-		else if (!first && vol == last_volume) {
+		} else if (!first && vol == last_volume) {
 			unmute_volume = vol;
 			g_timeout_add(UNMUTE_WAIT_MS, unmute_check, NULL);
+		} else if (!first) {
+			/* a volume key unmuted: PulseAudio shows the volume */
+			close_mute();
 		}
+		if (!first && !hw)
+			unmute_sink();
 		last_hwmute = hw;
 	}
 	last_volume = vol;

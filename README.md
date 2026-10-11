@@ -60,7 +60,12 @@ so pressing a key several times shows one popup, not a stack. One exception:
 the embedded controller also unmutes the speaker on the volume keys, and
 then the PulseAudio plugin shows the volume; bsdthinkpad says "Speaker on"
 only when the volume did not change with the unmute (the mute key, the panel
-switch).
+switch).  On a ThinkPad whose mute key also reaches the desktop (the X1
+Carbon, where the pulseaudio plugin toggles the PulseAudio sink together
+with the controller's mute) the volume keys leave that sink muted, and the
+plugin's OSD would keep showing "muted" for an unmuted speaker; there
+bsdthinkpad clears the sink mute when the hardware is unmuted (the volume
+itself stays with the plugin) and drops its own stale "Speaker muted" popup.
 
 ## Requirements
 

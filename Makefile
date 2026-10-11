@@ -52,7 +52,8 @@ SUBST      = sed -e 's|@PREFIX@|$(PREFIX)|g' -e 's|@BINDIR@|$(BINDIR)|g' \
 all: $(PROG) $(HELPER) $(PLUGIN) $(GENERATED)
 
 $(PROG): bsdthinkpad.c hw.c hw.h
-	$(CC) $(CFLAGS) $(HW_CFLAGS) $(NOTIFY_CFLAGS) -o $(PROG) \
+	$(CC) $(CFLAGS) $(HW_CFLAGS) -DPACTL='"$(LOCALBASE)/bin/pactl"' \
+	    $(NOTIFY_CFLAGS) -o $(PROG) \
 	    bsdthinkpad.c hw.c $(NOTIFY_LIBS) -lmixer
 
 $(PLUGIN): bsdthinkpad-plugin.c ctl.c ctl.h hw.c hw.h

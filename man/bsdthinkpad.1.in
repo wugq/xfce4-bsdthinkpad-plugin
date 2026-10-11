@@ -59,6 +59,12 @@ The volume keys unmute too; then PulseAudio changes the volume and shows it,
 and
 .Nm
 does not show the unmute as well.
+Where the mute key also reaches the desktop (the X1 Carbon), the pulseaudio
+panel plugin mutes the PulseAudio sink too, and the volume keys leave it
+muted;
+.Nm
+unmutes that sink when the hardware is unmuted, so the plugin does not keep
+showing the speaker as muted.
 .It microphone mute
 the recording level
 .Pq Dq rec
