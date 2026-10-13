@@ -30,9 +30,10 @@ int	hw_set_brightness(int value);
 int	hw_get_hwmute(void);
 
 /*
- * Default mixer, mixer(3): OSS "pcm" level 0..100.  pulseaudio (module-oss)
- * writes it together with "vol" whenever it changes its volume, but reads
- * only "vol"; for setting it by hand ("bsdthinkpad pcm").
+ * Default mixer, mixer(3): OSS "pcm" level 0..100.  PulseAudio's volume
+ * (module-oss) is "vol"; the card's "pcm" stays as it is (measured on
+ * FreeBSD 15.1, where PulseAudio's PCM write does not reach it), so it is set
+ * by hand: the panel's PCM slider, "bsdthinkpad pcm".
  */
 int	hw_get_pcm(void);
 int	hw_set_pcm(int value);

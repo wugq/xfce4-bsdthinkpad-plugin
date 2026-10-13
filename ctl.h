@@ -23,6 +23,7 @@ typedef struct {
 	int	brightness;	/* 0..100, backlight(9) */
 	int	speaker_mute;	/* 0/1, ThinkPad hardware mute */
 	int	mic_mute;	/* 0/1, recording level of all mixers muted */
+	int	pcm;		/* 0..100, OSS "pcm" of the default mixer */
 } CtlState;
 
 typedef struct Ctl Ctl;
@@ -41,6 +42,8 @@ void		 ctl_set_polling(Ctl *ctl, guint interval_ms);
 
 void		 ctl_set_brightness(Ctl *ctl, int value);
 void		 ctl_step_brightness(Ctl *ctl, int step);
+void		 ctl_set_pcm(Ctl *ctl, int value);
+void		 ctl_step_pcm(Ctl *ctl, int step);
 void		 ctl_set_speaker_mute(Ctl *ctl, int mute);
 void		 ctl_set_mic_mute(Ctl *ctl, int mute);
 

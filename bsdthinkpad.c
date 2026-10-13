@@ -6,14 +6,16 @@
  * bsdthinkpad -- on-screen display for ThinkPad keys on FreeBSD (XFCE)
  *
  * Shows desktop notifications for what the XFCE pulseaudio plugin and power
- * manager can not see on FreeBSD:
+ * manager can not see on FreeBSD, and drives the ThinkPad mute LEDs:
  *
  *   brightness       /dev/backlight/backlight0 (backlight(9)), with a bar
  *   speaker mute     the embedded controller mutes the speaker in hardware;
  *                    only the sysctl dev.acpi_ibm.0.mute changes, and the
  *                    key sends no event.  bsdthinkpad turns the mute LED
  *                    on/off (bsdthinkpad-mute-led via pkexec), which
- *                    acpi_ibm(4) does not
+ *                    acpi_ibm(4) does not, and keeps the PulseAudio sink
+ *                    mute in step with it, so the pulseaudio plugin shows
+ *                    it (no popup of ours)
  *   microphone mute  the "rec" level of every mixer (mixer(3), see hw.h); the
  *                    LED follows it, whoever changed it (key, panel, command)
  *
@@ -65,11 +67,12 @@
 #define FAST_MS		30
 #define FAST_FOR_US	(2 * G_USEC_PER_SEC)
 /*
- * How long after the speaker was unmuted a change of the volume still counts
- * as made by the same key: PulseAudio sets the volume a moment after the
- * embedded controller unmuted
+ * How long after the speaker mute changed the sink is checked once more:
+ * where the mute key reaches the desktop the pulseaudio plugin toggles the
+ * sink itself, usually within a few ms of the embedded controller (so before
+ * we see the change), but not always
  */
-#define UNMUTE_WAIT_MS	150
+#define MUTE_WAIT_MS	150
 
 static int interval_ms = 200;		/* how often to poll */
 static int drive_leds = 1;		/* set the mute LEDs (via pkexec) */
@@ -80,14 +83,12 @@ static int sink_warned;			/* reported a pactl failure */
 static int last_brightness = -1;
 static int last_hwmute = -1;
 static int last_micmute = -1;
-static int last_volume = -1;		/* OSS "vol" */
-static int unmute_volume;		/* OSS "vol" when the speaker was
-					   unmuted */
+static int sync_pending;		/* a sink_sync() is due */
 static gint64 last_change;		/* g_get_monotonic_time() of the last
 					   brightness change */
 
 /* One notification per kind, updated in place so new ones replace old ones */
-static NotifyNotification *n_brightness, *n_mute, *n_mic;
+static NotifyNotification *n_brightness, *n_mic;
 
 /*
  * Set a mute LED.  On failure warn once and keep trying at the next change:
@@ -109,19 +110,14 @@ led(const char *which, int on)
 }
 
 /*
- * Clear the PulseAudio sink mute.  The sink mute and the controller's
- * speaker mute are independent, and on ThinkPads whose mute key also reaches
- * the desktop (the pulseaudio panel plugin toggles the sink) the volume keys
- * unmute the speaker in the controller but leave the sink muted, so the
- * plugin's OSD keeps showing "muted" for an unmuted speaker.  Called when the
- * hardware becomes unmuted.  The volume stays with the plugin; when the sink
- * is not muted nothing changes and the plugin shows no OSD (the case on
- * ThinkPads whose mute key never reaches the desktop).
+ * Set the PulseAudio sink mute (to the embedded controller's, see
+ * sink_sync()).
  */
 static void
-unmute_sink(void)
+set_sink_mute(int on)
 {
-	if (system(PACTL " set-sink-mute @DEFAULT_SINK@ 0") == 0)
+	if (system(on ? PACTL " set-sink-mute @DEFAULT_SINK@ 1" :
+	    PACTL " set-sink-mute @DEFAULT_SINK@ 0") == 0)
 		sink_warned = 0;
 	else if (!sink_warned) {
 		syslog(LOG_WARNING, "%s set-sink-mute failed; the speaker "
@@ -129,6 +125,29 @@ unmute_sink(void)
 		    "(logged once)", PACTL);
 		sink_warned = 1;
 	}
+}
+
+/*
+ * Is the PulseAudio sink muted?  1/0, -1 if pactl fails (no PulseAudio, so
+ * no plugin to show anything either).
+ */
+static int
+sink_muted(void)
+{
+	char *out = NULL;
+	int status, muted = -1;
+
+	/* LC_ALL=C: pactl translates "yes" and "no" */
+	if (g_spawn_command_line_sync("/usr/bin/env LC_ALL=C " PACTL
+	    " get-sink-mute @DEFAULT_SINK@", &out, NULL, &status, NULL) &&
+	    status == 0 && out != NULL) {
+		if (strstr(out, "yes") != NULL)
+			muted = 1;
+		else if (strstr(out, "no") != NULL)
+			muted = 0;
+	}
+	g_free(out);
+	return muted;
 }
 
 /*
@@ -160,10 +179,7 @@ show(NotifyNotification **n, const char *summary, const char *icon,
 }
 
 /*
- * A mute changed: its state only, no bar.  The pulseaudio plugin shows its
- * volume with a bar on every volume key; on FreeBSD the mute is not part of
- * that (the embedded controller mutes in hardware), and a second bar for
- * the same volume would only repeat it.
+ * The microphone mute changed: its state only, no bar.
  */
 static void
 show_mute(NotifyNotification **n, const char *what, int muted,
@@ -179,40 +195,26 @@ show_mute(NotifyNotification **n, const char *what, int muted,
 }
 
 /*
- * Drop our speaker-mute OSD.  A volume key unmutes the speaker in the
- * controller and PulseAudio then shows the volume; our "Speaker muted" would
- * only linger, showing a mute icon for an unmuted speaker.
- */
-static void
-close_mute(void)
-{
-	if (n_mute != NULL) {
-		notify_notification_close(n_mute, NULL);
-		g_object_unref(n_mute);
-		n_mute = NULL;
-	}
-}
-
-/*
- * The speaker was unmuted, UNMUTE_WAIT_MS ago, and the volume had not
- * changed with it.  The embedded controller unmutes on the volume keys too;
- * then PulseAudio changes the volume and shows it, and "Speaker on" would
- * only repeat that.  So say it only if the volume has still not changed: the
- * mute key (or the panel's switch) unmuted.  (At 100% the volume up key
- * changes nothing; then it is said too.)
+ * Put the PulseAudio sink mute in step with the embedded controller's.  The
+ * two are independent: the controller mutes the speaker in hardware, the
+ * sink is what the pulseaudio plugin shows.  Where the mute key reaches the
+ * desktop (the X1 Carbon) the plugin toggles the sink with the controller,
+ * but the volume keys unmute only the controller, and a quick double press
+ * can leave the two apart; where it does not (the A475) the sink never
+ * follows on its own.  Setting it shows the speaker mute through the plugin
+ * on every ThinkPad, so bsdthinkpad has no speaker popup of its own.
  */
 static gboolean
-unmute_check(gpointer data)
+sink_sync(gpointer data)
 {
-	(void)data;
-	if (last_hwmute == 0) {
-		if (hw_get_volume() == unmute_volume)
-			show_mute(&n_mute, "Speaker", 0, "audio-volume");
-		else
-			/* a volume key unmuted and PulseAudio shows the
-			   volume: drop our stale "Speaker muted" OSD */
-			close_mute();
-	}
+	int hw, sink;
+
+	if (data != NULL)
+		sync_pending = 0;
+	hw = hw_get_hwmute();
+	sink = sink_muted();
+	if (hw >= 0 && sink >= 0 && sink != hw)
+		set_sink_mute(hw);
 	return G_SOURCE_REMOVE;
 }
 
@@ -221,7 +223,7 @@ unmute_check(gpointer data)
 static void
 poll_once(int first)
 {
-	int b, hw, mic, vol;
+	int b, hw, mic;
 	char text[32];
 
 	b = hw_get_brightness();
@@ -238,23 +240,16 @@ poll_once(int first)
 	}
 
 	hw = hw_get_hwmute();
-	vol = hw_get_volume();
 	if (hw >= 0 && hw != last_hwmute) {
 		led("speaker", hw);
-		if (!first && hw) {
-			show_mute(&n_mute, "Speaker", 1, "audio-volume");
-		} else if (!first && vol == last_volume) {
-			unmute_volume = vol;
-			g_timeout_add(UNMUTE_WAIT_MS, unmute_check, NULL);
-		} else if (!first) {
-			/* a volume key unmuted: PulseAudio shows the volume */
-			close_mute();
+		/* the sink now, and again in case the plugin was late */
+		sink_sync(NULL);
+		if (!sync_pending) {
+			sync_pending = 1;
+			g_timeout_add(MUTE_WAIT_MS, sink_sync, &sync_pending);
 		}
-		if (!first && !hw)
-			unmute_sink();
 		last_hwmute = hw;
 	}
-	last_volume = vol;
 
 	mic = hw_get_micmute();
 	if (mic >= 0 && mic != last_micmute) {

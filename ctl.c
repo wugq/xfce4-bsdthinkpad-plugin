@@ -39,6 +39,7 @@ read_hw(Ctl *ctl)
 	s->brightness = hw_get_brightness();
 	s->speaker_mute = hw_get_hwmute();
 	s->mic_mute = hw_get_micmute();
+	s->pcm = hw_get_pcm();
 }
 
 /* Combine the hardware state with pending requests; report a change */
@@ -51,8 +52,8 @@ update(Ctl *ctl)
 		s.speaker_mute = ctl->want_speaker;
 	if (ctl->valid && memcmp(&s, &ctl->state, sizeof(s)) == 0)
 		return;
-	g_debug("state: brightness %d, speaker mute %d, mic mute %d",
-	    s.brightness, s.speaker_mute, s.mic_mute);
+	g_debug("state: brightness %d, speaker mute %d, mic mute %d, pcm %d",
+	    s.brightness, s.speaker_mute, s.mic_mute, s.pcm);
 	ctl->state = s;
 	ctl->valid = TRUE;
 	if (ctl->changed != NULL)
@@ -157,24 +158,53 @@ ctl_set_brightness(Ctl *ctl, int value)
 }
 
 /*
- * The hardware rounds down (50 -> 49), so a small step up may not move the
- * level at all: go further until it does, or until the end of the range.
+ * The hardware rounds (brightness 50 -> 49, the mixer to its own steps), so
+ * a small step may not move the level at all: go further until it does, or
+ * until the end of the range.  Returns the new level.
  */
+static int
+step_level(const char *what, int (*get)(void), int (*set)(int), int step)
+{
+	int b = get(), dir = step > 0 ? 1 : -1, v;
+
+	if (b < 0 || step == 0)
+		return b;
+	for (v = CLAMP(b + step, 0, 100);; v += dir) {
+		set(v);
+		if (get() != b || v == 0 || v == 100)
+			break;
+	}
+	g_debug("%s: step %+d from %d, set %d, got %d", what, step, b, v,
+	    get());
+	return get();
+}
+
 void
 ctl_step_brightness(Ctl *ctl, int step)
 {
-	int b = hw_get_brightness(), dir = step > 0 ? 1 : -1, v;
+	ctl->hw.brightness = step_level("brightness", hw_get_brightness,
+	    hw_set_brightness, step);
+	update(ctl);
+}
 
-	if (b < 0 || step == 0)
-		return;
-	for (v = CLAMP(b + step, 0, 100);; v += dir) {
-		hw_set_brightness(v);
-		if (hw_get_brightness() != b || v == 0 || v == 100)
-			break;
-	}
-	ctl->hw.brightness = hw_get_brightness();
-	g_debug("brightness: step %+d from %d, set %d, got %d", step, b, v,
-	    ctl->hw.brightness);
+/*
+ * The sound card's "pcm" level.  PulseAudio's volume is the card's "vol";
+ * "pcm" comes after it and PulseAudio leaves it alone, so a low "pcm" makes
+ * everything quiet whatever the volume.
+ */
+void
+ctl_set_pcm(Ctl *ctl, int value)
+{
+	hw_set_pcm(value);
+	ctl->hw.pcm = hw_get_pcm();
+	g_debug("pcm: set %d, got %d", value, ctl->hw.pcm);
+	update(ctl);
+}
+
+void
+ctl_step_pcm(Ctl *ctl, int step)
+{
+	ctl->hw.pcm = step_level("pcm", hw_get_pcm, hw_set_pcm, step);
 	update(ctl);
 }
 

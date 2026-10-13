@@ -7,13 +7,15 @@
  * not do on FreeBSD:
  *
  *   brightness   slider (scroll on the panel icon too)
+ *   PCM          slider: the OSS "pcm" level of the sound card, which
+ *                PulseAudio's volume does not change
  *   speaker      switch: the ThinkPad hardware mute (same as the mute key),
  *                LED included
  *   microphone   switch: the recording level of all sound devices (same as
  *                the mic-mute key), LED included
  *
- * Volume is the pulseaudio plugin's job: its sink volume is the OSS "vol"
- * (and "pcm") of the sound card.  The tooltip, like the pulseaudio plugin's,
+ * Volume is the pulseaudio plugin's job: its sink volume is the OSS "vol" of
+ * the sound card; "pcm" comes after it and nothing else sets it.  The tooltip, like the pulseaudio plugin's,
  * follows the keys while the pointer is on the icon.
  *
  * This file is only the UI.  The state and every change to the hardware are
@@ -46,9 +48,10 @@ typedef struct {
 	 */
 	GtkWidget	*menu;
 	gboolean	 hovering;
-	gboolean	 dragging;	/* the brightness slider */
+	gboolean	 dragging;	/* a slider */
 
 	GtkWidget	*bright_row, *bright_scale, *bright_label, *bright_sep;
+	GtkWidget	*pcm_row, *pcm_scale, *pcm_label;
 	GtkWidget	*speaker_row, *speaker_icon, *speaker_switch;
 	GtkWidget	*mic_row, *mic_icon, *mic_switch;
 
@@ -60,6 +63,7 @@ typedef struct {
 /* ---- view: state -> widgets --------------------------------------------- */
 
 static void on_brightness(GtkRange *, Panel *);
+static void on_pcm(GtkRange *, Panel *);
 static void on_speaker(GObject *, GParamSpec *, Panel *);
 static void on_mic(GObject *, GParamSpec *, Panel *);
 
@@ -69,6 +73,7 @@ static void on_mic(GObject *, GParamSpec *, Panel *);
  * "display-brightness-low-symbolic" in any of them.
  */
 #define ICON_BRIGHTNESS	"display-brightness-symbolic"
+#define ICON_PCM	"audio-card-symbolic"
 #define ICON_SPEAKER_ON	"audio-volume-high-symbolic"
 #define ICON_SPEAKER_OFF "audio-volume-muted-symbolic"
 #define ICON_MIC_ON	"audio-input-microphone-symbolic"
@@ -181,12 +186,15 @@ render(const CtlState *s, gpointer data)
 	if (all || s->brightness != o->brightness)
 		render_slider(p, p->bright_row, p->bright_scale,
 		    p->bright_label, on_brightness, s->brightness);
+	if (all || s->pcm != o->pcm)
+		render_slider(p, p->pcm_row, p->pcm_scale, p->pcm_label,
+		    on_pcm, s->pcm);
 	if (all || s->speaker_mute != o->speaker_mute)
 		render_speaker(p, s->speaker_mute);
 	if (all || s->mic_mute != o->mic_mute)
 		render_mic(p, s->mic_mute);
 	gtk_widget_set_visible(p->bright_sep, s->brightness >= 0 &&
-	    (s->speaker_mute >= 0 || s->mic_mute >= 0));
+	    (s->pcm >= 0 || s->speaker_mute >= 0 || s->mic_mute >= 0));
 	render_tooltip(p, s);
 
 	*o = *s;
@@ -200,6 +208,13 @@ on_brightness(GtkRange *range, Panel *p)
 {
 	set_percent(p->bright_label, (int)gtk_range_get_value(range));
 	ctl_set_brightness(p->ctl, (int)gtk_range_get_value(range));
+}
+
+static void
+on_pcm(GtkRange *range, Panel *p)
+{
+	set_percent(p->pcm_label, (int)gtk_range_get_value(range));
+	ctl_set_pcm(p->ctl, (int)gtk_range_get_value(range));
 }
 
 /*
@@ -234,6 +249,8 @@ render_slider_idle(gpointer data)
 
 	render_slider(p, p->bright_row, p->bright_scale, p->bright_label,
 	    on_brightness, s->brightness);
+	render_slider(p, p->pcm_row, p->pcm_scale, p->pcm_label, on_pcm,
+	    s->pcm);
 	return G_SOURCE_REMOVE;
 }
 
@@ -348,11 +365,14 @@ on_widget(GtkWidget *from, GtkWidget *w, gdouble x, gdouble y)
 static gboolean
 on_slider_item_press(GtkWidget *item, GdkEventButton *ev, Panel *p)
 {
+	GtkWidget *scale = item == p->pcm_row ? p->pcm_scale :
+	    p->bright_scale;
+
 	if (ev->type == GDK_BUTTON_PRESS &&
-	    on_widget(item, p->bright_scale, ev->x, ev->y)) {
+	    on_widget(item, scale, ev->x, ev->y)) {
 		g_debug("slider: pressed");
 		p->dragging = TRUE;
-		gtk_widget_event(p->bright_scale, (GdkEvent *)ev);
+		gtk_widget_event(scale, (GdkEvent *)ev);
 	}
 	return TRUE;
 }
@@ -374,12 +394,16 @@ on_slider_item_release(GtkWidget *item, GdkEventButton *ev, Panel *p)
 	return TRUE;
 }
 
-/* Scrolling on the slider's item, as on the panel icon */
+/* Scrolling on a slider's item steps its level, as on the panel icon */
 static gboolean
 on_slider_item_scroll(GtkWidget *item, GdkEventScroll *ev, Panel *p)
 {
-	(void)item;
-	on_scroll(NULL, ev, p);
+	if (item != p->pcm_row)
+		on_scroll(NULL, ev, p);
+	else if (ev->direction == GDK_SCROLL_UP)
+		ctl_step_pcm(p->ctl, SCROLL_STEP);
+	else if (ev->direction == GDK_SCROLL_DOWN)
+		ctl_step_pcm(p->ctl, -SCROLL_STEP);
 	return TRUE;
 }
 
@@ -489,6 +513,18 @@ switch_row(GtkWidget *menu, const char *name, const char *tip,
 }
 
 static void
+connect_slider_item(Panel *p, GtkWidget *item)
+{
+	gtk_widget_add_events(item, GDK_SCROLL_MASK);
+	g_signal_connect(item, "button-press-event",
+	    G_CALLBACK(on_slider_item_press), p);
+	g_signal_connect(item, "button-release-event",
+	    G_CALLBACK(on_slider_item_release), p);
+	g_signal_connect(item, "scroll-event",
+	    G_CALLBACK(on_slider_item_scroll), p);
+}
+
+static void
 build_menu(Panel *p)
 {
 	p->menu = gtk_menu_new();
@@ -502,6 +538,11 @@ build_menu(Panel *p)
 	/* Display apart from sound, as the pulseaudio plugin's groups */
 	p->bright_sep = gtk_separator_menu_item_new();
 	gtk_menu_shell_append(GTK_MENU_SHELL(p->menu), p->bright_sep);
+	p->pcm_row = slider_row(p->menu, ICON_PCM,
+	    "PCM: the sound card's own level (OSS mixer \"pcm\").\n"
+	    "The volume keys and PulseAudio do not change it;\n"
+	    "if everything is quiet, raise this.",
+	    &p->pcm_scale, &p->pcm_label);
 	p->speaker_row = switch_row(p->menu, "Speaker",
 	    "Hardware mute by the embedded controller (ACPI SSMS),\n"
 	    "same as the mute key; LED included",
@@ -513,13 +554,9 @@ build_menu(Panel *p)
 
 	g_signal_connect(p->bright_scale, "value-changed",
 	    G_CALLBACK(on_brightness), p);
-	gtk_widget_add_events(p->bright_row, GDK_SCROLL_MASK);
-	g_signal_connect(p->bright_row, "button-press-event",
-	    G_CALLBACK(on_slider_item_press), p);
-	g_signal_connect(p->bright_row, "button-release-event",
-	    G_CALLBACK(on_slider_item_release), p);
-	g_signal_connect(p->bright_row, "scroll-event",
-	    G_CALLBACK(on_slider_item_scroll), p);
+	g_signal_connect(p->pcm_scale, "value-changed", G_CALLBACK(on_pcm), p);
+	connect_slider_item(p, p->bright_row);
+	connect_slider_item(p, p->pcm_row);
 
 	g_signal_connect(p->speaker_switch, "notify::active",
 	    G_CALLBACK(on_speaker), p);

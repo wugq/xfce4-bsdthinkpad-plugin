@@ -32,8 +32,10 @@
 Without a command,
 .Nm
 watches the screen brightness, the speaker mute of the ThinkPad embedded
-controller and the microphone mute, and shows a desktop notification
-whenever one of them changes, whoever changed it.
+controller and the microphone mute.
+It shows a desktop notification when the brightness or the microphone mute
+changes, whoever changed it; the speaker mute is shown by the pulseaudio
+panel plugin (see below).
 It is started with the desktop session by
 .Pa @PREFIX@/etc/xdg/autostart/bsdthinkpad.desktop .
 .Pp
@@ -55,16 +57,13 @@ pressed, and sends no event.
 turns the mute LED on and off, which
 .Xr acpi_ibm 4
 does not.
-The volume keys unmute too; then PulseAudio changes the volume and shows it,
-and
-.Nm
-does not show the unmute as well.
-Where the mute key also reaches the desktop (the X1 Carbon), the pulseaudio
-panel plugin mutes the PulseAudio sink too, and the volume keys leave it
-muted;
-.Nm
-unmutes that sink when the hardware is unmuted, so the plugin does not keep
-showing the speaker as muted.
+It also sets the PulseAudio sink mute to match the controller's, at once and
+again 150 milliseconds later, so that the pulseaudio panel plugin shows the
+speaker mute; it has no notification of its own for it.
+The two are independent: where the mute key also reaches the desktop (the X1
+Carbon) the plugin toggles the sink with the controller, but the volume keys
+unmute only the controller; where it does not (the A475) the sink never
+follows on its own.
 .It microphone mute
 the recording level
 .Pq Dq rec
@@ -112,10 +111,13 @@ and
 The same for the OSS
 .Dq pcm
 level of the default mixer.
-PulseAudio overwrites it with its volume
-(the OSS
-.Dq vol )
-whenever it changes the volume.
+PulseAudio's volume is the OSS
+.Dq vol
+and leaves
+.Dq pcm
+alone, so a low
+.Dq pcm
+makes everything quiet; the panel plugin has a slider for it.
 .It Cm micmute Op Cm on | off | toggle
 Mute
 .Pq Cm on

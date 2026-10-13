@@ -28,21 +28,22 @@ volume. It only adds what the PulseAudio plugin can not see on FreeBSD:
 |---|---|---|
 | Volume keys, volume popup, per-app volume | yes | — |
 | Brightness keys and popup | — | yes |
-| Speaker mute key (muted in hardware by the EC) + its LED | — | yes |
+| Speaker mute key (muted in hardware by the EC): popup | yes | keeps the PulseAudio sink mute in step with the EC, so the plugin can show it |
+| Speaker mute LED | — | yes |
 | Microphone mute key + its LED | — | yes |
-| OSS `pcm` level | — | `bsdthinkpad pcm N` (command line only) |
+| OSS `pcm` level | — | panel slider, `bsdthinkpad pcm N` |
 
 With `module-oss` the PulseAudio sink has hardware volume control
 (`pactl list sinks` shows `HW_VOLUME_CTRL`): its volume is the OSS `vol` of the
-sound card. Whenever PulseAudio changes its volume it writes the OSS `pcm`
-level too, the same value as `vol`, but it reads only `vol`; so a `pcm` set by
-anything else is overwritten at the next volume change. The panel plugin leaves
-both alone; use the PulseAudio plugin for everyday volume.
-`bsdthinkpad-setup` sets `pcm` to 1.00 and saves it to `/var/db/mixerN-state`;
-`bsdthinkpad pcm N` changes it by hand if needed.
+sound card. The card's OSS `pcm` level comes after it, and PulseAudio does not
+change it (measured on FreeBSD 15.1: the volume keys move `vol` and leave
+`pcm` as it is). A low `pcm` therefore makes everything quiet whatever the
+volume says, and nothing in PulseAudio shows it; hence the PCM slider in the
+panel plugin. `bsdthinkpad-setup` sets `pcm` to 1.00 and saves it to
+`/var/db/mixerN-state`; `bsdthinkpad pcm N` changes it from the command line.
 
-**Tested on one machine only:** a ThinkPad A475 (AMD) with FreeBSD 15.1 and
-XFCE 4.20. Other ThinkPads and other FreeBSD versions have not been tried;
+**Tested on two machines:** a ThinkPad A475 (AMD) and an X1 Carbon 3rd
+generation (Intel), both with FreeBSD 15.1 and XFCE 4.20. Other ThinkPads and other FreeBSD versions have not been tried;
 see "Other ThinkPads" below for what is model-specific. Reports from other
 models are welcome.
 
@@ -51,21 +52,28 @@ models are welcome.
 | Key | How FreeBSD sees it | bsdthinkpad |
 |---|---|---|
 | Brightness −/+ | `backlight(9)`: `/dev/backlight/backlight0` | `bsdthinkpad brightness ±N` changes it; popup with a bar |
-| Speaker mute | the embedded controller mutes in hardware; only `sysctl dev.acpi_ibm.0.mute` changes; the key sends no event | popup, and turns the **mute LED** on/off via the ACPI method `SSMS` (`acpi_ibm(4)` does not) |
+| Speaker mute | the embedded controller mutes in hardware; only `sysctl dev.acpi_ibm.0.mute` changes; the key sends no event | turns the **mute LED** on/off via the ACPI method `SSMS` (`acpi_ibm(4)` does not), and sets the PulseAudio sink mute to match, so the PulseAudio plugin shows it |
 | Microphone mute | the recording level (`rec`) of every mixer; the key arrives as an ACPI event (`notify=0x1b`) | a devd rule toggles the microphone mute and its **LED**; popup, and bsdthinkpad keeps the LED in step whoever changed the mute (panel, `bsdthinkpad micmute`, `mixer`) |
 
 The watcher polls these values (default every 200 ms) and shows a notification
-whenever one changes, whoever changed it. Notifications are updated in place,
-so pressing a key several times shows one popup, not a stack. One exception:
-the embedded controller also unmutes the speaker on the volume keys, and
-then the PulseAudio plugin shows the volume; bsdthinkpad says "Speaker on"
-only when the volume did not change with the unmute (the mute key, the panel
-switch).  On a ThinkPad whose mute key also reaches the desktop (the X1
-Carbon, where the pulseaudio plugin toggles the PulseAudio sink together
-with the controller's mute) the volume keys leave that sink muted, and the
-plugin's OSD would keep showing "muted" for an unmuted speaker; there
-bsdthinkpad clears the sink mute when the hardware is unmuted (the volume
-itself stays with the plugin) and drops its own stale "Speaker muted" popup.
+when the brightness or the microphone mute changes, whoever changed it.
+Notifications are updated in place, so pressing a key several times shows one
+popup, not a stack.
+
+The speaker mute has no popup of bsdthinkpad's own: the PulseAudio plugin
+shows it, the same on every ThinkPad. The embedded controller's mute and the
+PulseAudio sink mute are two independent switches, and the plugin shows only
+the sink. How they get apart depends on the model:
+
+- Where the mute key also reaches the desktop (the X1 Carbon), the plugin
+  toggles the sink together with the controller. But the volume keys unmute
+  only the controller, and a quick double press can leave the two apart.
+- Where it does not (the A475), the desktop never learns of the mute.
+
+So whenever the hardware mute changes, bsdthinkpad sets the sink mute to
+match it (at once, and again 150 ms later in case the plugin was slow), and
+the plugin shows the result. No per-model setting is needed. The volume
+itself stays with the plugin.
 
 ## Requirements
 
@@ -197,13 +205,22 @@ stays there (as the PulseAudio plugin's tooltip does). Click for:
 ```
  ☀  ━━━━━━━━●━━━━   78%       backlight(9)
  ──────────────────────
+ 🔊 ━━━━━━━━━━━●━  100%       OSS pcm of the sound card
  🔈 Speaker        [ on ]     EC hardware mute (ACPI SSMS), LED included
  🎤 Microphone     [ on ]     recording level of all mixers, LED included
 ```
 
+Scroll on the PCM row to change it in 4% steps too. Leave it at 100% unless
+the sound card is too loud even at a low volume; if everything is quiet,
+look here first.
+
 The popup is a menu, like the PulseAudio plugin's: it grabs keyboard and
 pointer while open, so the brightness and volume keys work again once it is
-closed (a click outside, Escape, or the panel icon closes it). A click on a
+closed (a click outside, Escape, or the panel icon closes it). The speaker
+and microphone mute keys still work while it is open: the embedded controller
+handles the speaker mute key in firmware and the mic-mute key arrives through
+devd, neither through X, so no grab can hold them back. The switches follow
+at once. A click on a
 switch's row flips it and leaves the menu open. Items the machine does not
 have (no backlight, no `acpi_ibm`, no mixer with a recording level) are
 hidden. The menu re-reads the hardware while open, so keys pressed meanwhile
@@ -263,7 +280,9 @@ session.)
 On the A475 the **speaker mute** key is handled by the embedded controller
 alone: it mutes in hardware and sends no event (no ACPI notify, no X key);
 only `dev.acpi_ibm.0.mute` changes. bsdthinkpad notices the change and sets the LED
-(pkexec, see below).
+(pkexec, see below) and the PulseAudio sink mute. On the X1 Carbon the key
+reaches X as well (`XF86AudioMute`), and the PulseAudio plugin toggles the
+sink itself.
 
 The **mic-mute** key arrives only as an ACPI event (`notify=0x1b`), not as
 an X key. As in the examples of `acpi_ibm(4)`, a devd rule
