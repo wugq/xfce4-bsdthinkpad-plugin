@@ -18,6 +18,17 @@ The A475's speaker mute sends no event at all (only the sysctl changes), so
 a fast poll of `dev.acpi_ibm.0.mute` stays; that is why the gain is small
 (an estimated 0.1% → 0.05%). Not worth the extra code for now.
 
+Checked 2026-10-13: the X1 Carbon 3rd gen sends no devd event for the
+speaker mute or volume keys either (`acpi_ibm` events on, eventmask with
+the volume/mute bit; listening on `/var/run/devd.pipe`, which did show
+other events, while the mute key toggled `dev.acpi_ibm.0.mute` six times:
+nothing). `acpi_ibm` would pass notify 0x15-0x17 on, but neither firmware
+raises them. So "assume no events, switch to events once one is seen" has
+nothing to learn from on either machine. The only extra signal on the X1
+Carbon is the X key `XF86AudioMute` (keyboard path, grabbed by the
+pulseaudio plugin); an XInput2 raw-event listener could see it, but would
+tie the watcher to X11 for ~0.1% CPU on some models only.
+
 ## Decided not to do
 
 ### Volume keys unmute the speaker
