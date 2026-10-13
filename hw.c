@@ -17,6 +17,8 @@
 #include <limits.h>
 #include <mixer.h>
 #include <spawn.h>
+#include <stdio.h>
+#include <time.h>
 #include <unistd.h>
 
 #include "hw.h"
@@ -178,10 +180,61 @@ rec_mute(int set)
 	return failed == found ? -1 : 0;
 }
 
+/*
+ * The number of mixers, for hw_get_micmute().  mixer_get_nmixers() reads the
+ * sound devices' list (~30 us, and mixer_get_path() calls it again for every
+ * mixer), so it is kept, and asked again every MIXERS_TTL seconds (a USB
+ * sound device plugged in) or when a mixer fails to open (one taken out).
+ * libmixer's units are 0..n-1, its paths "/dev/mixerN".
+ */
+#define MIXERS_TTL	10
+
+static int	nmixers = -1;
+static time_t	nmixers_time;
+
+static void
+count_mixers(void)
+{
+	struct timespec now;
+
+	clock_gettime(CLOCK_MONOTONIC, &now);
+	if (nmixers >= 0 && now.tv_sec - nmixers_time < MIXERS_TTL)
+		return;
+	nmixers_time = now.tv_sec;
+	nmixers = mixer_get_nmixers();
+}
+
+/*
+ * Polled several times a second, so not through rec_mute(): mixer_open()
+ * reads every channel of the mixer.  Two ioctls per mixer are enough to
+ * read the mute; with the count kept, ~30 us for six mixers on an A475,
+ * against ~600 us before.
+ */
 int
 hw_get_micmute(void)
 {
-	return rec_mute(-1);
+	char path[32];
+	int i, n, fd, devmask, mutemask, found = 0, muted = 0;
+
+	count_mixers();
+	for (i = 0, n = nmixers; i < n; i++) {
+		snprintf(path, sizeof(path), "/dev/mixer%d", i);
+		if ((fd = open(path, O_RDONLY | O_CLOEXEC)) < 0) {
+			nmixers = -1;	/* gone: count again next time */
+			continue;
+		}
+		if (ioctl(fd, SOUND_MIXER_READ_DEVMASK, &devmask) == 0 &&
+		    (devmask & SOUND_MASK_RECLEV) != 0) {
+			found++;
+			if (ioctl(fd, SOUND_MIXER_READ_MUTE, &mutemask) == 0 &&
+			    (mutemask & SOUND_MASK_RECLEV) != 0)
+				muted++;
+		}
+		close(fd);
+	}
+	if (found == 0)
+		return -1;
+	return muted == found;
 }
 
 int

@@ -75,6 +75,26 @@ match it (at once, and again 150 ms later in case the plugin was slow), and
 the plugin shows the result. No per-model setting is needed. The volume
 itself stays with the plugin.
 
+### Why it polls
+
+FreeBSD gives no notice for most of what bsdthinkpad shows:
+
+| | Event? |
+|---|---|
+| Speaker mute (A475) | none: the embedded controller mutes in firmware, only the sysctl changes (`acpi_ibm` events are on, devd still gets nothing) |
+| Brightness | none from `backlight(9)` |
+| Microphone mute from the panel or `mixer` | none: OSS mixers have no change notification |
+| Microphone mute key | a devd notify (used by the devd rule) |
+
+So the watcher reads these values every 200 ms, the slowest that still feels
+immediate when a key is pressed. Each round is cheap (about 0.1 ms on the
+A475), and the watcher uses about 0.1% of one CPU, but it wakes up five times
+a second and so shows up fairly high in `top` among otherwise idle
+processes. Events could replace some of the reads, but not the speaker mute:
+without polling, the speaker mute key would show nothing, or show it late.
+Keeping the keys' popups and LEDs immediate means polling, at this cost.
+`bsdthinkpad -i ms` sets a slower interval for those who prefer that.
+
 ## Requirements
 
 - FreeBSD 14 or later (`mixer(3)`, `backlight(9)`)
