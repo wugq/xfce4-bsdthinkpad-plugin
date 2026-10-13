@@ -219,8 +219,8 @@ pointer while open, so the brightness and volume keys work again once it is
 closed (a click outside, Escape, or the panel icon closes it). The speaker
 and microphone mute keys still work while it is open: the embedded controller
 handles the speaker mute key in firmware and the mic-mute key arrives through
-devd, neither through X, so no grab can hold them back. The switches follow
-at once. A click on a
+devd, neither through X, so no grab can hold them back (the PulseAudio
+plugin's menu behaves the same). The switches follow at once. A click on a
 switch's row flips it and leaves the menu open. Items the machine does not
 have (no backlight, no `acpi_ibm`, no mixer with a recording level) are
 hidden. The menu re-reads the hardware while open, so keys pressed meanwhile

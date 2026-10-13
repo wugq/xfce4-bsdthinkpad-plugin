@@ -83,7 +83,7 @@ static int sink_warned;			/* reported a pactl failure */
 static int last_brightness = -1;
 static int last_hwmute = -1;
 static int last_micmute = -1;
-static int sync_pending;		/* a sink_sync() is due */
+static int sync_pending;		/* a sink_sync_later() is due */
 static gint64 last_change;		/* g_get_monotonic_time() of the last
 					   brightness change */
 
@@ -110,37 +110,34 @@ led(const char *which, int on)
 }
 
 /*
- * Set the PulseAudio sink mute (to the embedded controller's, see
- * sink_sync()).
+ * Run "pactl <cmd> @DEFAULT_SINK@ [arg]" and wait for it; TRUE if it ran and
+ * exited 0.  Its output goes to *out (free it) if out is not NULL.
+ * LC_ALL=C: pactl translates its "yes" and "no".
  */
-static void
-set_sink_mute(int on)
+static gboolean
+pactl(const char *cmd, const char *arg, char **out)
 {
-	if (system(on ? PACTL " set-sink-mute @DEFAULT_SINK@ 1" :
-	    PACTL " set-sink-mute @DEFAULT_SINK@ 0") == 0)
-		sink_warned = 0;
-	else if (!sink_warned) {
-		syslog(LOG_WARNING, "%s set-sink-mute failed; the speaker "
-		    "mute in PulseAudio may not follow the hardware "
-		    "(logged once)", PACTL);
-		sink_warned = 1;
-	}
+	char *argv[] = { PACTL, (char *)cmd, "@DEFAULT_SINK@", (char *)arg,
+	    NULL };
+	char **env = g_environ_setenv(g_get_environ(), "LC_ALL", "C", TRUE);
+	int status;
+	gboolean ok;
+
+	ok = g_spawn_sync(NULL, argv, env, out == NULL ?
+	    G_SPAWN_STDOUT_TO_DEV_NULL : 0, NULL, NULL, out, NULL, &status,
+	    NULL) && g_spawn_check_wait_status(status, NULL);
+	g_strfreev(env);
+	return ok;
 }
 
-/*
- * Is the PulseAudio sink muted?  1/0, -1 if pactl fails (no PulseAudio, so
- * no plugin to show anything either).
- */
+/* Is the PulseAudio sink muted?  1/0, -1 if pactl fails */
 static int
 sink_muted(void)
 {
 	char *out = NULL;
-	int status, muted = -1;
+	int muted = -1;
 
-	/* LC_ALL=C: pactl translates "yes" and "no" */
-	if (g_spawn_command_line_sync("/usr/bin/env LC_ALL=C " PACTL
-	    " get-sink-mute @DEFAULT_SINK@", &out, NULL, &status, NULL) &&
-	    status == 0 && out != NULL) {
+	if (pactl("get-sink-mute", NULL, &out) && out != NULL) {
 		if (strstr(out, "yes") != NULL)
 			muted = 1;
 		else if (strstr(out, "no") != NULL)
@@ -148,6 +145,19 @@ sink_muted(void)
 	}
 	g_free(out);
 	return muted;
+}
+
+static void
+set_sink_mute(int on)
+{
+	if (pactl("set-sink-mute", on ? "1" : "0", NULL))
+		sink_warned = 0;
+	else if (!sink_warned) {
+		syslog(LOG_WARNING, "%s set-sink-mute failed; the speaker "
+		    "mute in PulseAudio may not follow the hardware "
+		    "(logged once)", PACTL);
+		sink_warned = 1;
+	}
 }
 
 /*
@@ -204,17 +214,22 @@ show_mute(NotifyNotification **n, const char *what, int muted,
  * follows on its own.  Setting it shows the speaker mute through the plugin
  * on every ThinkPad, so bsdthinkpad has no speaker popup of its own.
  */
-static gboolean
-sink_sync(gpointer data)
+static void
+sink_sync(void)
 {
-	int hw, sink;
+	int hw = hw_get_hwmute(), sink = sink_muted();
 
-	if (data != NULL)
-		sync_pending = 0;
-	hw = hw_get_hwmute();
-	sink = sink_muted();
 	if (hw >= 0 && sink >= 0 && sink != hw)
 		set_sink_mute(hw);
+}
+
+/* The second look, MUTE_WAIT_MS after the change */
+static gboolean
+sink_sync_later(gpointer data)
+{
+	(void)data;
+	sync_pending = 0;
+	sink_sync();
 	return G_SOURCE_REMOVE;
 }
 
@@ -243,10 +258,10 @@ poll_once(int first)
 	if (hw >= 0 && hw != last_hwmute) {
 		led("speaker", hw);
 		/* the sink now, and again in case the plugin was late */
-		sink_sync(NULL);
+		sink_sync();
 		if (!sync_pending) {
 			sync_pending = 1;
-			g_timeout_add(MUTE_WAIT_MS, sink_sync, &sync_pending);
+			g_timeout_add(MUTE_WAIT_MS, sink_sync_later, NULL);
 		}
 		last_hwmute = hw;
 	}
