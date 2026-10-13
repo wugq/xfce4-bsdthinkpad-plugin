@@ -2,11 +2,13 @@ xfce4-bsdthinkpad-plugin adds what the XFCE PulseAudio plugin
 (xfce4-pulseaudio-plugin) and power manager can not do on FreeBSD ThinkPads:
 
 - bsdthinkpad, a watcher started with the desktop session: notifications for
-  brightness, the speaker mute key (muted in hardware by the embedded
-  controller) and the microphone mute key, and it keeps both mute LEDs in
-  step, whoever changed the mute.
-- bsdthinkpad-plugin, an XFCE panel plugin: a brightness slider, speaker and
-  microphone switches; scroll on its icon for brightness.
+  brightness and the microphone mute key; it keeps both mute LEDs in step,
+  whoever changed the mute, and the PulseAudio sink mute in step with the
+  speaker mute key (muted in hardware by the embedded controller), so the
+  PulseAudio plugin shows it.
+- bsdthinkpad-plugin, an XFCE panel plugin: brightness and OSS "pcm"
+  sliders, speaker and microphone switches; scroll on its icon for
+  brightness.
 - bsdthinkpad-mute-led, a small root helper for the LEDs, run through pkexec
   with a polkit policy that allows the user at the console.
 - a devd rule for the microphone mute key, which arrives only as an ACPI
