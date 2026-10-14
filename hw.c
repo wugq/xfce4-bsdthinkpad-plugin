@@ -255,21 +255,43 @@ hw_set_led(const char *which, int on)
 	char *argv[] = { "pkexec", MUTE_LED_HELPER, (char *)which,
 	    on < 0 ? "sync" : on ? "1" : "0", NULL };
 	posix_spawn_file_actions_t fa;
+	char out[16];
+	ssize_t n = 0;
 	pid_t pid;
-	int status, r = -1;
+	int fd[2] = { -1, -1 }, status, r = -1;
 
 	if (access(MUTE_LED_HELPER, X_OK) != 0)
 		return -1;
+	/* "sync" prints the state it set the LED to */
+	if (on < 0 && pipe2(fd, O_CLOEXEC) != 0)
+		return -1;
 	posix_spawn_file_actions_init(&fa);
-	posix_spawn_file_actions_addopen(&fa, STDOUT_FILENO, "/dev/null",
-	    O_WRONLY, 0);
+	if (on < 0)
+		posix_spawn_file_actions_adddup2(&fa, fd[1], STDOUT_FILENO);
+	else
+		posix_spawn_file_actions_addopen(&fa, STDOUT_FILENO,
+		    "/dev/null", O_WRONLY, 0);
 	posix_spawn_file_actions_addopen(&fa, STDERR_FILENO, "/dev/null",
 	    O_WRONLY, 0);
-	if (posix_spawnp(&pid, "pkexec", &fa, NULL, argv, environ) == 0 &&
-	    waitpid(pid, &status, 0) == pid &&
-	    WIFEXITED(status) && WEXITSTATUS(status) == 0)
-		r = 0;
+	if (posix_spawnp(&pid, "pkexec", &fa, NULL, argv, environ) == 0) {
+		if (on < 0) {
+			close(fd[1]);
+			fd[1] = -1;
+			n = read(fd[0], out, sizeof(out) - 1);
+		}
+		if (waitpid(pid, &status, 0) == pid && WIFEXITED(status) &&
+		    WEXITSTATUS(status) == 0)
+			r = 0;
+	}
 	posix_spawn_file_actions_destroy(&fa);
+	if (on < 0) {
+		if (fd[1] >= 0)
+			close(fd[1]);
+		close(fd[0]);
+		if (r == 0)
+			r = (n > 0 && out[0] == '1') ? 1 :
+			    (n > 0 && out[0] == '0') ? 0 : -1;
+	}
 	return r;
 }
 

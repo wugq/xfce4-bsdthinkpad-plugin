@@ -49,6 +49,8 @@ typedef struct {
 	GtkWidget	*menu;
 	gboolean	 hovering;
 	gboolean	 dragging;	/* a slider */
+	GtkWidget	*drag_scale;	/* the slider being dragged */
+	GtkWidget	*drag_item;	/* its menu item, holding a GTK grab */
 
 	GtkWidget	*bright_row, *bright_scale, *bright_label, *bright_sep;
 	GtkWidget	*pcm_row, *pcm_scale, *pcm_label;
@@ -337,30 +339,77 @@ on_menu_hide(GtkWidget *menu, Panel *p)
 {
 	(void)menu;
 	g_debug("menu: closed");
+	/* Closed in the middle of a drag (Escape): drop its grab */
+	if (p->drag_item != NULL)
+		gtk_grab_remove(p->drag_item);
 	p->dragging = FALSE;
+	p->drag_scale = p->drag_item = NULL;
 	gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(p->button), FALSE);
 	update_polling(p);
 	g_idle_add(render_slider_idle, p);
 }
 
-/* Are x, y (relative to from) on w? */
+/*
+ * Is the screen point x_root, y_root on w?  (The event's x, y are relative
+ * to the window it came through.)
+ */
 static gboolean
-on_widget(GtkWidget *from, GtkWidget *w, gdouble x, gdouble y)
+on_widget(GtkWidget *w, gdouble x_root, gdouble y_root)
 {
-	gint wx, wy;
+	GtkAllocation a;
+	GdkWindow *win = gtk_widget_get_window(w);
+	gint ox, oy;
 
-	return gtk_widget_translate_coordinates(from, w, (gint)x, (gint)y,
-	    &wx, &wy) && wx >= 0 && wy >= 0 &&
-	    wx < gtk_widget_get_allocated_width(w) &&
-	    wy < gtk_widget_get_allocated_height(w);
+	if (win == NULL)
+		return FALSE;
+	gdk_window_get_origin(win, &ox, &oy);
+	gtk_widget_get_allocation(w, &a);
+	/* a.x, a.y: relative to w's GdkWindow (that of a parent, for a
+	   widget with no window of its own such as GtkScale) */
+	return x_root >= ox + a.x && x_root < ox + a.x + a.width &&
+	    y_root >= oy + a.y && y_root < oy + a.y + a.height;
+}
+
+/*
+ * Set a slider to the value under the screen x: the middle of the knob goes
+ * where the pointer is, along the trough.
+ */
+static void
+drag_to(GtkWidget *scale, gdouble x_root)
+{
+	GtkRange *range = GTK_RANGE(scale);
+	GtkAdjustment *adj = gtk_range_get_adjustment(range);
+	GdkRectangle trough;
+	GtkAllocation a;
+	gint ox, oy, start, end, knob, span;
+	double f, lo, hi;
+
+	gdk_window_get_origin(gtk_widget_get_window(scale), &ox, &oy);
+	gtk_widget_get_allocation(scale, &a);
+	gtk_range_get_range_rect(range, &trough);
+	gtk_range_get_slider_range(range, &start, &end);
+	knob = end - start;
+	span = trough.width - knob;
+	if (span <= 0)
+		return;
+	f = (x_root - ox - a.x - trough.x - knob / 2.0) / span;
+	f = f < 0 ? 0 : (f > 1 ? 1 : f);
+	lo = gtk_adjustment_get_lower(adj);
+	hi = gtk_adjustment_get_upper(adj);
+	gtk_range_set_value(range, lo + f * (hi - lo));
 }
 
 /*
  * In a menu the pointer's events go to the menu item, not to the widgets in
- * it, and a click chooses the item and closes the menu.  So a press on the
- * slider is passed on to it; the slider then grabs the pointer, and GTK
- * gives it the motion and the release itself.  The release still reaches
- * the item, and goes no further, so the menu does not take it as a click.
+ * it, and a click chooses the item and closes the menu.  So the item drags
+ * its slider itself: the press sets the value under the pointer, motion
+ * follows it (with a GTK grab on the item, so that the motion still comes
+ * when the pointer leaves the row), and the release ends it.  The release
+ * goes no further, so the menu does not take it as a click.
+ *
+ * (Passing the press on to the GtkScale, as before, worked for the first
+ * slider but not for the second until the first had been dragged once:
+ * GtkRange's gestures did not take an event given to them second-hand.)
  */
 static gboolean
 on_slider_item_press(GtkWidget *item, GdkEventButton *ev, Panel *p)
@@ -368,12 +417,24 @@ on_slider_item_press(GtkWidget *item, GdkEventButton *ev, Panel *p)
 	GtkWidget *scale = item == p->pcm_row ? p->pcm_scale :
 	    p->bright_scale;
 
-	if (ev->type == GDK_BUTTON_PRESS &&
-	    on_widget(item, scale, ev->x, ev->y)) {
+	if (ev->type == GDK_BUTTON_PRESS && ev->button == 1 &&
+	    on_widget(scale, ev->x_root, ev->y_root)) {
 		g_debug("slider: pressed");
 		p->dragging = TRUE;
-		gtk_widget_event(scale, (GdkEvent *)ev);
+		p->drag_scale = scale;
+		p->drag_item = item;
+		gtk_grab_add(item);
+		drag_to(scale, ev->x_root);
 	}
+	return TRUE;
+}
+
+static gboolean
+on_slider_item_motion(GtkWidget *item, GdkEventMotion *ev, Panel *p)
+{
+	(void)item;
+	if (p->dragging && p->drag_scale != NULL)
+		drag_to(p->drag_scale, ev->x_root);
 	return TRUE;
 }
 
@@ -384,11 +445,12 @@ on_slider_item_press(GtkWidget *item, GdkEventButton *ev, Panel *p)
 static gboolean
 on_slider_item_release(GtkWidget *item, GdkEventButton *ev, Panel *p)
 {
-	(void)item;
 	(void)ev;
 	if (p->dragging) {
 		g_debug("slider: released");
+		gtk_grab_remove(item);
 		p->dragging = FALSE;
+		p->drag_scale = p->drag_item = NULL;
 		g_idle_add(render_slider_idle, p);
 	}
 	return TRUE;
@@ -515,9 +577,11 @@ switch_row(GtkWidget *menu, const char *name, const char *tip,
 static void
 connect_slider_item(Panel *p, GtkWidget *item)
 {
-	gtk_widget_add_events(item, GDK_SCROLL_MASK);
+	gtk_widget_add_events(item, GDK_SCROLL_MASK | GDK_BUTTON1_MOTION_MASK);
 	g_signal_connect(item, "button-press-event",
 	    G_CALLBACK(on_slider_item_press), p);
+	g_signal_connect(item, "motion-notify-event",
+	    G_CALLBACK(on_slider_item_motion), p);
 	g_signal_connect(item, "button-release-event",
 	    G_CALLBACK(on_slider_item_release), p);
 	g_signal_connect(item, "scroll-event",

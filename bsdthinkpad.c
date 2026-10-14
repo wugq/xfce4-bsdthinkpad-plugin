@@ -117,12 +117,14 @@ static NotifyNotification *n_brightness, *n_mic;
  * Set a mute LED.  On failure warn once and keep trying at the next change:
  * the cause may be passing (e.g. polkit or PAM, see README).
  */
-static void
+static int
 led(const char *which, int on)
 {
+	int r;
+
 	if (!drive_leds)
-		return;
-	if (hw_set_led(which, on) == 0)
+		return -1;
+	if ((r = hw_set_led(which, on)) >= 0)
 		led_warned = 0;
 	else if (!led_warned) {
 		syslog(LOG_WARNING, "pkexec %s %s %s failed; "
@@ -131,6 +133,7 @@ led(const char *which, int on)
 		    on < 0 ? "sync" : on ? "1" : "0");
 		led_warned = 1;
 	}
+	return r;
 }
 
 /*
@@ -262,7 +265,7 @@ sink_sync_later(gpointer data)
 static void
 poll_once(int first)
 {
-	int b, hw, mic;
+	int b, hw, mic, led_hw;
 	char text[32];
 
 	b = hw_get_brightness();
@@ -281,18 +284,20 @@ poll_once(int first)
 	hw = hw_get_hwmute();
 	if (hw >= 0 && hw != last_hwmute) {
 		/*
-		 * "sync", not hw: the helper's SSMS sets the mute too, and
+		 * "sync" (GSMS, then SSMS), not hw: SSMS sets the mute too, and
 		 * pkexec takes long enough for a quick second press of the
-		 * key to land meanwhile; hw would then undo it
+		 * key to land meanwhile; hw would then undo it.  Remember the
+		 * state the LED got rather than hw: if the key was pressed
+		 * twice meanwhile, they differ, and the next poll syncs again.
 		 */
-		led("speaker", -1);
+		led_hw = led("speaker", -1);
 		/* the sink now, and again in case the plugin was late */
 		sink_sync();
 		if (!sync_pending) {
 			sync_pending = 1;
 			g_timeout_add(MUTE_WAIT_MS, sink_sync_later, NULL);
 		}
-		last_hwmute = hw;
+		last_hwmute = led_hw >= 0 ? led_hw : hw;
 	}
 
 	mic = hw_get_micmute();

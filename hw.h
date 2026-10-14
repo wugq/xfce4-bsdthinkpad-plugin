@@ -50,10 +50,11 @@ int	hw_set_micmute(int on);
 /*
  * Set the speaker or microphone mute LED through the root helper
  * (pkexec + polkit policy org.bsdthinkpad.mute-led).
- * which: "speaker" or "mic".  on: 0 or 1; for "speaker" also -1, "the
- * state the controller has when the helper runs" (the speaker LED's SSMS
- * sets the mute too, see bsdthinkpad-mute-led.c).
- * Returns 0 on success.
+ * which: "speaker" or "mic".  on: 0 or 1; for "speaker" also -1: set the LED
+ * to the mute the controller has when the helper runs (read with GSMS right
+ * before SSMS, which sets the mute too; see bsdthinkpad-mute-led.c).
+ * Returns 0 on success, -1 on failure; with -1, the state the LED was set
+ * to (0 or 1).
  */
 int	hw_set_led(const char *which, int on);
 
