@@ -86,6 +86,8 @@
 #define IDLE_MS		2000
 #define DEVD_SOCKET	"/var/run/devd.seqpacket.pipe"
 #define DEVD_RETRY_US	(10 * G_USEC_PER_SEC)
+/* Speaker LED syncs in a row that may disagree with the mute, see poll_once */
+#define LED_MISMATCH_MAX	3
 /*
  * How long after the speaker mute changed the sink is checked once more:
  * where the mute key reaches the desktop the pulseaudio plugin toggles the
@@ -104,6 +106,8 @@ static int last_brightness = -1;
 static int last_hwmute = -1;
 static int last_micmute = -1;
 static int sync_pending;		/* a sink_sync_later() is due */
+static int led_mismatch;		/* syncs in a row whose LED state was
+					   not the mute we saw */
 static gint64 last_change;		/* g_get_monotonic_time() of the last
 					   brightness change or event */
 static guint poll_id;			/* the pending poll_tick() */
@@ -291,6 +295,21 @@ poll_once(int first)
 		 * twice meanwhile, they differ, and the next poll syncs again.
 		 */
 		led_hw = led("speaker", -1);
+		/*
+		 * A ThinkPad whose GSMS means something else would never
+		 * agree, and every poll would run pkexec: after a few
+		 * disagreements in a row, go by hw again.
+		 */
+		if (led_hw >= 0 && led_hw != hw) {
+			if (++led_mismatch == LED_MISMATCH_MAX)
+				syslog(LOG_WARNING, "the speaker LED state "
+				    "from GSMS keeps differing from "
+				    "dev.acpi_ibm.0.mute; not syncing again "
+				    "on it");
+			if (led_mismatch >= LED_MISMATCH_MAX)
+				led_hw = -1;
+		} else
+			led_mismatch = 0;
 		/* the sink now, and again in case the plugin was late */
 		sink_sync();
 		if (!sync_pending) {

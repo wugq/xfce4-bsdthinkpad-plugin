@@ -104,7 +104,7 @@ speaker_sync(void)
 	char method[300], out[64];
 	char *args[] = { "acpi_call", "-p", method, "-i", "0", NULL };
 	char *env[] = { "PATH=/sbin:/bin:/usr/sbin:/usr/bin", NULL };
-	int fd[2], status, on;
+	int fd[2], null, status, on;
 	ssize_t n;
 	pid_t pid;
 
@@ -131,8 +131,8 @@ speaker_sync(void)
 	printf("%d\n", on);
 	fflush(stdout);
 	/* SSMS's own output would follow ours on the caller's pipe */
-	if ((n = open("/dev/null", O_WRONLY)) >= 0)
-		dup2((int)n, STDOUT_FILENO);
+	if ((null = open("/dev/null", O_WRONLY)) >= 0)
+		dup2(null, STDOUT_FILENO);
 	speaker_led(on);			/* does not return */
 }
 

@@ -35,11 +35,13 @@ volume. It only adds what the PulseAudio plugin can not see on FreeBSD:
 
 With `module-oss` the PulseAudio sink has hardware volume control
 (`pactl list sinks` shows `HW_VOLUME_CTRL`): its volume is the OSS `vol` of the
-sound card. The card's OSS `pcm` level comes after it, and PulseAudio does not
-change it (measured on FreeBSD 15.1: the volume keys move `vol` and leave
-`pcm` as it is). A low `pcm` therefore makes everything quiet whatever the
-volume says, and nothing in PulseAudio shows it; hence the PCM slider in the
-panel plugin. `bsdthinkpad-setup` sets `pcm` to 1.00 and saves it to
+sound card. Whenever PulseAudio changes its volume it writes the card's OSS
+`pcm` level too, the same value as `vol`. But when PulseAudio starts (at
+login, or restarted) it restores only `vol`: `pcm` keeps whatever value it
+had, and a low one makes everything quiet whatever the volume says, until the
+next volume key press puts the two in step again (traced with dtrace on
+FreeBSD 15.1). Nothing in PulseAudio shows `pcm`; hence the PCM slider in
+the panel plugin. `bsdthinkpad-setup` sets `pcm` to 1.00 and saves it to
 `/var/db/mixerN-state`; `bsdthinkpad pcm N` changes it from the command line.
 
 **Tested on two machines:** a ThinkPad A475 (AMD) and an X1 Carbon 3rd
@@ -88,12 +90,31 @@ FreeBSD gives no notice for most of what bsdthinkpad shows:
 
 So the watcher reads these values every 200 ms, the slowest that still feels
 immediate when a key is pressed. Each round is cheap (about 0.1 ms on the
-A475), and the watcher uses about 0.1% of one CPU, but it wakes up five times
-a second and so shows up fairly high in `top` among otherwise idle
-processes. Events could replace some of the reads, but not the speaker mute:
-without polling, the speaker mute key would show nothing, or show it late.
-Keeping the keys' popups and LEDs immediate means polling, at this cost.
-`bsdthinkpad -i ms` sets a slower interval for those who prefer that.
+A475), and the watcher uses about 0.1-0.2% of one CPU, but it wakes up five
+times a second and so shows up fairly high in `top` among otherwise idle
+processes. `bsdthinkpad -i ms` sets a slower interval for those who prefer
+that.
+
+#### Optional: the tpmute kernel module
+
+The speaker mute is the one value nothing else can report. **tpmute**, a
+small kernel module that is not part of this package, polls the embedded
+controller's mute in the kernel (a kernel thread costs far less than waking a
+process) and sends a devd event when it changes:
+
+```
+!system=ACPI subsystem=IBM type=MUTE state=0|1
+```
+
+When it is loaded (`sysctl hw.tpmute` exists), the watcher waits instead of
+polling every 200 ms: it reads at once on an `acpi_ibm` devd event (tpmute's
+mute, the mic-mute key), and when `bsdthinkpad brightness`, `bsdthinkpad
+micmute` or the panel plugin changed something (they send it `SIGWINCH`),
+then fast for 2 s; otherwise it reads only every 2 s, for changes made by
+other programs (`mixer`, another backlight tool), which can therefore show
+up to 2 s late. Without tpmute, or when devd is restarted, it polls every
+200 ms as before, and connects to devd again. Measured on the A475: 0.01 s
+of CPU per minute instead of about 0.15 s.
 
 ## Requirements
 
@@ -230,9 +251,11 @@ stays there (as the PulseAudio plugin's tooltip does). Click for:
  🎤 Microphone     [ on ]     recording level of all mixers, LED included
 ```
 
-Scroll on the PCM row to change it in 4% steps too. Leave it at 100% unless
-the sound card is too loud even at a low volume; if everything is quiet,
-look here first.
+Scroll on the PCM row to change it in 4% steps too. PulseAudio sets `pcm` to
+its own volume on every volume change, except right after it starts: then
+`pcm` keeps its old value. If everything is quiet after a login or a
+PulseAudio restart although the volume is up, look here first (or press a
+volume key).
 
 The popup is a menu, like the PulseAudio plugin's: it grabs keyboard and
 pointer while open, so the brightness and volume keys work again once it is

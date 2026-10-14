@@ -91,6 +91,24 @@ Poll every
 milliseconds, 50 to 60000 (default 200).
 For two seconds after a brightness change it polls every 30 milliseconds, so
 that the notification's bar follows the keys or the scroll wheel step by step.
+.Pp
+When the tpmute kernel module is loaded (the sysctl
+.Va hw.tpmute
+exists; it reports the speaker mute to
+.Xr devd 8 ) ,
+.Nm
+waits instead: it reads at once on an
+.Xr acpi_ibm 4
+event from
+.Pa /var/run/devd.seqpacket.pipe
+and on
+.Dv SIGWINCH ,
+which the
+.Cm brightness
+and
+.Cm micmute
+commands and the panel plugin send it after a change, and otherwise only
+every two seconds.
 .It Fl n
 Do not set the mute LEDs.
 .El
@@ -111,13 +129,14 @@ and
 The same for the OSS
 .Dq pcm
 level of the default mixer.
-PulseAudio's volume is the OSS
-.Dq vol
-and leaves
+PulseAudio sets it together with its volume (the OSS
+.Dq vol ) ,
+except when it starts: then it restores only
+.Dq vol ,
+and a low
 .Dq pcm
-alone, so a low
-.Dq pcm
-makes everything quiet; the panel plugin has a slider for it.
+left from before makes everything quiet; the panel plugin has a slider for
+it.
 .It Cm micmute Op Cm on | off | toggle
 Mute
 .Pq Cm on
