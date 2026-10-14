@@ -11,13 +11,17 @@
 #include <sys/ioctl.h>
 #include <sys/soundcard.h>
 #include <sys/sysctl.h>
+#include <sys/user.h>
 #include <sys/wait.h>
 
 #include <fcntl.h>
 #include <limits.h>
 #include <mixer.h>
+#include <signal.h>
 #include <spawn.h>
 #include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -267,4 +271,38 @@ hw_set_led(const char *which, int on)
 		r = 0;
 	posix_spawn_file_actions_destroy(&fa);
 	return r;
+}
+
+/* ---- the watcher -------------------------------------------------------- */
+
+/*
+ * SIGWINCH, not SIGUSR1: its default action is to ignore it, so a watcher
+ * from before this (still running after an upgrade) is not killed by it.
+ */
+void
+hw_nudge_watcher(void)
+{
+	int mib[4] = { CTL_KERN, KERN_PROC, KERN_PROC_UID, (int)getuid() };
+	struct kinfo_proc *kp;
+	size_t len, i;
+
+	if (sysctl(mib, 4, NULL, &len, NULL, 0) != 0 || len == 0)
+		return;
+	len += len / 4;			/* processes may start meanwhile */
+	if ((kp = malloc(len)) == NULL)
+		return;
+	if (sysctl(mib, 4, kp, &len, NULL, 0) == 0)
+		for (i = 0; i < len / sizeof(*kp); i++)
+			if (kp[i].ki_pid != getpid() &&
+			    strcmp(kp[i].ki_comm, "bsdthinkpad") == 0)
+				(void)kill(kp[i].ki_pid, SIGWINCH);
+	free(kp);
+}
+
+int
+hw_have_tpmute(void)
+{
+	size_t len = 0;
+
+	return sysctlbyname("hw.tpmute.state", NULL, &len, NULL, 0) == 0;
 }

@@ -152,6 +152,7 @@ void
 ctl_set_brightness(Ctl *ctl, int value)
 {
 	hw_set_brightness(value);
+	hw_nudge_watcher();
 	ctl->hw.brightness = hw_get_brightness();
 	g_debug("brightness: set %d, got %d", value, ctl->hw.brightness);
 	update(ctl);
@@ -184,6 +185,7 @@ ctl_step_brightness(Ctl *ctl, int step)
 {
 	ctl->hw.brightness = step_level("brightness", hw_get_brightness,
 	    hw_set_brightness, step);
+	hw_nudge_watcher();
 	update(ctl);
 }
 
@@ -234,8 +236,10 @@ void
 ctl_set_mic_mute(Ctl *ctl, int mute)
 {
 	mute = mute != 0;
-	if (hw_set_micmute(mute) == 0)
+	if (hw_set_micmute(mute) == 0) {
 		run_helper(ctl, "mic", mute, 0);
+		hw_nudge_watcher();
+	}
 	else
 		g_debug("mic mute %d: the mixers can not be changed", mute);
 	ctl_refresh(ctl);

@@ -55,4 +55,15 @@ int	hw_set_micmute(int on);
  */
 int	hw_set_led(const char *which, int on);
 
+/*
+ * Tell this user's bsdthinkpad watcher that the brightness or the microphone
+ * mute was just changed (SIGWINCH), so it looks at once instead of at its
+ * next poll, which can be 2 s away when tpmute is loaded.  Does nothing if
+ * no watcher runs.
+ */
+void	hw_nudge_watcher(void);
+
+/* The tpmute kernel module is loaded (it reports the speaker mute to devd) */
+int	hw_have_tpmute(void);
+
 #endif

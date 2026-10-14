@@ -25,6 +25,15 @@
  * docs/kern-proc-env-bug.md), and so does not find the session.  bsdthinkpad
  * checks this at start and logs it.
  *
+ * None of these send an event of their own, so the watcher polls them, every
+ * 200 ms.  With the tpmute kernel module loaded (a separate project: it
+ * reports the speaker mute to devd as "system=ACPI subsystem=IBM type=MUTE"),
+ * it waits instead: it looks at once on an acpi_ibm event from devd (the
+ * speaker mute from tpmute, the mic-mute key) and when "bsdthinkpad
+ * brightness" or the panel plugin changed something (SIGWINCH, see
+ * hw_nudge_watcher()), and otherwise only every 2 s, for changes made by
+ * other programs.
+ *
  * The watcher logs to syslog(3) (ident "bsdthinkpad", /var/log/messages).
  *
  * Volume is left to the pulseaudio panel plugin (keys and popups).
@@ -40,16 +49,20 @@
  */
 
 #include <sys/types.h>
+#include <sys/socket.h>
 #include <sys/sysctl.h>
+#include <sys/un.h>
 
 #include <err.h>
 #include <errno.h>
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <syslog.h>
 #include <unistd.h>
 
+#include <glib-unix.h>
 #include <libnotify/notify.h>
 
 #include "hw.h"
@@ -66,6 +79,13 @@
  */
 #define FAST_MS		30
 #define FAST_FOR_US	(2 * G_USEC_PER_SEC)
+/*
+ * With tpmute and devd: the poll is only a safety net for changes nobody
+ * tells us about (another program's mixer or backlight change)
+ */
+#define IDLE_MS		2000
+#define DEVD_SOCKET	"/var/run/devd.seqpacket.pipe"
+#define DEVD_RETRY_US	(10 * G_USEC_PER_SEC)
 /*
  * How long after the speaker mute changed the sink is checked once more:
  * where the mute key reaches the desktop the pulseaudio plugin toggles the
@@ -85,7 +105,10 @@ static int last_hwmute = -1;
 static int last_micmute = -1;
 static int sync_pending;		/* a sink_sync_later() is due */
 static gint64 last_change;		/* g_get_monotonic_time() of the last
-					   brightness change */
+					   brightness change or event */
+static guint poll_id;			/* the pending poll_tick() */
+static int devd_fd = -1;		/* connection to devd, or -1 */
+static gint64 devd_tried;		/* last connection attempt */
 
 /* One notification per kind, updated in place so new ones replace old ones */
 static NotifyNotification *n_brightness, *n_mic;
@@ -276,18 +299,102 @@ poll_once(int first)
 	}
 }
 
-/* Poll, then come back soon after a brightness change, else after -i ms */
+static void devd_connect(void);
+
+/*
+ * Poll, then come back: soon after a brightness change or an event (a key
+ * held down, the bar following step by step); else after -i ms, or after
+ * IDLE_MS when tpmute and devd tell us about the speaker mute.
+ */
 static gboolean
 poll_tick(gpointer data)
 {
 	guint ms = (guint)interval_ms;
 
 	(void)data;
+	poll_id = 0;
 	poll_once(0);
+	if (devd_fd < 0)
+		devd_connect();
+	if (devd_fd >= 0 && hw_have_tpmute())
+		ms = IDLE_MS;
 	if (g_get_monotonic_time() - last_change < FAST_FOR_US && ms > FAST_MS)
 		ms = FAST_MS;
-	g_timeout_add(ms, poll_tick, NULL);
+	poll_id = g_timeout_add(ms, poll_tick, NULL);
 	return G_SOURCE_REMOVE;
+}
+
+/*
+ * Something changed, or is about to: look now, and then often for a while.
+ * The mic-mute key's devd event comes at the same time as the devd rule that
+ * mutes the microphone, so the change may land a moment after the event.
+ */
+static void
+kick(void)
+{
+	last_change = g_get_monotonic_time();
+	if (poll_id != 0)
+		g_source_remove(poll_id);
+	poll_tick(NULL);
+}
+
+/* "bsdthinkpad brightness", micmute or the panel plugin changed something */
+static gboolean
+on_nudge(gpointer data)
+{
+	(void)data;
+	kick();
+	return G_SOURCE_CONTINUE;
+}
+
+/* One devd event per read on the seqpacket socket */
+static gboolean
+on_devd(gint fd, GIOCondition cond, gpointer data)
+{
+	char buf[1024];
+	ssize_t n;
+
+	(void)data;
+	if ((cond & G_IO_IN) != 0 &&
+	    (n = recv(fd, buf, sizeof(buf) - 1, 0)) > 0) {
+		buf[n] = '\0';
+		/* tpmute's speaker mute, the mic-mute key, other hotkeys */
+		if (strstr(buf, "system=ACPI") != NULL &&
+		    strstr(buf, "subsystem=IBM") != NULL)
+			kick();
+		return G_SOURCE_CONTINUE;
+	}
+	/* devd went away (restarted): poll as before, connect again later */
+	close(fd);
+	devd_fd = -1;
+	return G_SOURCE_REMOVE;
+}
+
+/*
+ * Connect to devd, at most every DEVD_RETRY_US; without it (or without
+ * tpmute) the watcher just polls every -i ms as always.
+ */
+static void
+devd_connect(void)
+{
+	struct sockaddr_un sun;
+	gint64 now = g_get_monotonic_time();
+	int fd;
+
+	if (devd_tried != 0 && now - devd_tried < DEVD_RETRY_US)
+		return;
+	devd_tried = now;
+	if ((fd = socket(PF_LOCAL, SOCK_SEQPACKET | SOCK_CLOEXEC, 0)) < 0)
+		return;
+	memset(&sun, 0, sizeof(sun));
+	sun.sun_family = AF_LOCAL;
+	strlcpy(sun.sun_path, DEVD_SOCKET, sizeof(sun.sun_path));
+	if (connect(fd, (struct sockaddr *)&sun, sizeof(sun)) != 0) {
+		close(fd);
+		return;
+	}
+	devd_fd = fd;
+	g_unix_fd_add(fd, G_IO_IN | G_IO_HUP | G_IO_ERR, on_devd, NULL);
 }
 
 /*
@@ -330,7 +437,9 @@ watch(void)
 	/* Learn the current state (and set the LEDs) without notifying */
 	poll_once(1);
 
-	g_timeout_add((guint)interval_ms, poll_tick, NULL);
+	g_unix_signal_add(SIGWINCH, on_nudge, NULL);
+	devd_connect();
+	poll_id = g_timeout_add((guint)interval_ms, poll_tick, NULL);
 	loop = g_main_loop_new(NULL, FALSE);
 	g_main_loop_run(loop);
 }
@@ -359,6 +468,7 @@ set_cmd(const char *what, const char *arg, int (*get)(void), int (*set)(int))
 	val = (arg[0] == '+' || arg[0] == '-') ? cur + (int)n : (int)n;
 	if (set(val) != 0)
 		err(1, "%s", what);
+	hw_nudge_watcher();		/* shows the brightness at once */
 	printf("%d\n", get());
 	return 0;
 }
@@ -383,6 +493,9 @@ micmute_cmd(const char *arg)
 			    arg);
 		if (hw_set_micmute(cur) != 0)
 			errx(1, "micmute: cannot change the mixers");
+		/* As root from the devd rule this finds no watcher of
+		   root's; the watcher has the key's devd event anyway */
+		hw_nudge_watcher();
 		cur = hw_get_micmute();
 	}
 	printf("%s\n", cur ? "on" : "off");
