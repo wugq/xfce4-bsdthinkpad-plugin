@@ -125,9 +125,10 @@ led(const char *which, int on)
 	if (hw_set_led(which, on) == 0)
 		led_warned = 0;
 	else if (!led_warned) {
-		syslog(LOG_WARNING, "pkexec %s %s %d failed; "
+		syslog(LOG_WARNING, "pkexec %s %s %s failed; "
 		    "the mute LED does not follow (logged once)",
-		    MUTE_LED_HELPER, which, on);
+		    MUTE_LED_HELPER, which,
+		    on < 0 ? "sync" : on ? "1" : "0");
 		led_warned = 1;
 	}
 }
@@ -279,7 +280,12 @@ poll_once(int first)
 
 	hw = hw_get_hwmute();
 	if (hw >= 0 && hw != last_hwmute) {
-		led("speaker", hw);
+		/*
+		 * "sync", not hw: the helper's SSMS sets the mute too, and
+		 * pkexec takes long enough for a quick second press of the
+		 * key to land meanwhile; hw would then undo it
+		 */
+		led("speaker", -1);
 		/* the sink now, and again in case the plugin was late */
 		sink_sync();
 		if (!sync_pending) {

@@ -6,6 +6,8 @@
  * bsdthinkpad-mute-led -- turn a ThinkPad mute LED on (1) or off (0)
  *
  *   bsdthinkpad-mute-led speaker 0|1   speaker mute LED: ACPI method SSMS
+ *   bsdthinkpad-mute-led speaker sync  the same, with the state the
+ *                                      controller has right now
  *   bsdthinkpad-mute-led mic 0|1       microphone mute LED: sysctl
  *                                      dev.acpi_ibm.0.mic_led
  *
@@ -28,6 +30,7 @@
 
 #include <err.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
 
@@ -87,9 +90,25 @@ main(int argc, char *argv[])
 {
 	int on;
 
+	if (argc == 3 && strcmp(argv[1], "speaker") == 0 &&
+	    strcmp(argv[2], "sync") == 0) {
+		/*
+		 * The LED for the mute the controller has now.  SSMS sets the
+		 * mute as well, so a state read by the caller before pkexec
+		 * (which takes a while) could undo a key pressed meanwhile;
+		 * read it here, right before SSMS.
+		 */
+		size_t len = sizeof(on);
+
+		if (sysctlbyname("dev.acpi_ibm.0.mute", &on, &len, NULL,
+		    0) != 0)
+			err(1, "dev.acpi_ibm.0.mute");
+		speaker_led(on != 0);		/* does not return */
+	}
 	if (argc != 3 ||
 	    (strcmp(argv[2], "0") != 0 && strcmp(argv[2], "1") != 0))
-		errx(2, "usage: bsdthinkpad-mute-led speaker|mic 0|1");
+		errx(2, "usage: bsdthinkpad-mute-led speaker|mic 0|1, "
+		    "bsdthinkpad-mute-led speaker sync");
 	on = (argv[2][0] == '1');
 
 	if (strcmp(argv[1], "speaker") == 0)
@@ -97,6 +116,7 @@ main(int argc, char *argv[])
 	else if (strcmp(argv[1], "mic") == 0)
 		mic_led(on);
 	else
-		errx(2, "usage: bsdthinkpad-mute-led speaker|mic 0|1");
+		errx(2, "usage: bsdthinkpad-mute-led speaker|mic 0|1, "
+		    "bsdthinkpad-mute-led speaker sync");
 	return 0;
 }

@@ -253,7 +253,7 @@ int
 hw_set_led(const char *which, int on)
 {
 	char *argv[] = { "pkexec", MUTE_LED_HELPER, (char *)which,
-	    on ? "1" : "0", NULL };
+	    on < 0 ? "sync" : on ? "1" : "0", NULL };
 	posix_spawn_file_actions_t fa;
 	pid_t pid;
 	int status, r = -1;

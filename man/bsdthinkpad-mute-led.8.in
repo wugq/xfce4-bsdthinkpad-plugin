@@ -13,6 +13,8 @@
 .Nm @LIBEXECDIR@/bsdthinkpad-mute-led
 .Cm speaker | mic
 .Cm 0 | 1
+.Nm @LIBEXECDIR@/bsdthinkpad-mute-led
+.Cm speaker sync
 .Sh DESCRIPTION
 The
 .Nm
@@ -22,7 +24,7 @@ or on
 .Pq Cm 1 .
 It is the only part of
 .Xr bsdthinkpad 1
-that needs root, and it accepts nothing but these two forms.
+that needs root, and it accepts nothing but these forms.
 .Bl -tag -width speaker
 .It Cm speaker
 Calls the ACPI method
@@ -39,6 +41,13 @@ or unmutes
 the speaker in hardware, so callers pass the state that
 .Va dev.acpi_ibm.0.mute
 already has.
+With
+.Cm sync
+the helper reads that state itself, right before
+.Dv SSMS :
+a state read by the caller before
+.Xr pkexec 1
+could undo a mute key pressed again meanwhile.
 .It Cm mic
 Sets the sysctl
 .Va dev.acpi_ibm.0.mic_led .
