@@ -18,6 +18,24 @@ The A475's speaker mute sends no event at all (only the sysctl changes), so
 a fast poll of `dev.acpi_ibm.0.mute` stays; that is why the gain is small
 (an estimated 0.1% → 0.05%). Not worth the extra code for now.
 
+Idea 2026-10-14 (to discuss, nothing built): a small kernel module that
+does the polling in the kernel and sends the events FreeBSD lacks.
+- A callout every 200 ms reads the EC speaker mute (what `acpi_ibm`'s
+  `dev.acpi_ibm.0.mute` handler reads) and, on a change, sends a devd
+  event, e.g. `system=ACPI subsystem=IBM type=MUTE`. A kernel timer costs
+  far less than waking a process (no context switch, no syscalls).
+- bsdthinkpad then waits on `/var/run/devd.pipe` instead of polling: the
+  speaker mute from the module, the mic-mute key from the existing ACPI
+  notify, brightness from `bsdthinkpad brightness` telling the watcher; a
+  slow (~2 s) poll stays only as a fallback for changes by other tools.
+- Expected: the watcher's CPU from ~0.15% to ~0.01%, gone from `top`.
+- Costs: a kmod built per FreeBSD version (a separate kmod port, root
+  install, loader configuration); a bug panics the machine instead of
+  ending one process; ThinkPad- and FreeBSD-only (NetBSD would need its own).
+- Plan if done: a separate experiment first (~100+ lines), measured on the
+  A475, merged into bsdthinkpad only if worth it. Measured before: the
+  watcher at ~0.15-0.18% of one CPU on both machines (0.3.1).
+
 Checked 2026-10-13: the X1 Carbon 3rd gen sends no devd event for the
 speaker mute or volume keys either (`acpi_ibm` events on, eventmask with
 the volume/mute bit; listening on `/var/run/devd.pipe`, which did show
