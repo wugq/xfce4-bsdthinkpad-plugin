@@ -137,6 +137,15 @@ is right as soon as the key is left alone; it shows the EC's mute, which is
 what the speaker does. It does so only when SMBIOS says "ThinkPad A475" and
 the pin is an output; `hw.tpmute.led=0` turns it off.
 
+The A475's other LEDs are FCH GPIOs too (each checked by flipping bit 22
+for 3 s; low lights all three):
+
+| LED | GPIO (DSDT name) | register | set by ACPI method |
+|---|---|---|---|
+| speaker mute | 143 (`G143`) | `0xFED8173C` | `SSMS`/`GSMS`, through the SMI |
+| microphone mute | 142 (`G142`) | `0xFED81738` | `MMTS` (`dev.acpi_ibm.0.mic_led`) |
+| Fn Lock | 7 (`GP07`) | `0xFED8151C` | `FNST` |
+
 **The EC is easily kept busy.** Each read of `dev.acpi_ibm.0.mute` is an EC
 transaction. While the mute key is pressed quickly, reads collide with the
 EC's own work: dmesg shows `acpi_ec0: EcCommand: no response to 0x84` (the
