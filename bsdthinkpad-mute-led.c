@@ -7,8 +7,8 @@
  *
  *   bsdthinkpad-mute-led speaker 0|1   speaker mute LED: ACPI method SSMS
  *   bsdthinkpad-mute-led speaker sync  speaker mute LED to the mute the
- *                                      controller has: GSMS, then SSMS;
- *                                      prints the state it set (0 or 1)
+ *                                      firmware has: ACPI method GSMS;
+ *                                      prints that state (0 or 1)
  *   bsdthinkpad-mute-led mic 0|1       microphone mute LED: sysctl
  *                                      dev.acpi_ibm.0.mic_led
  *
@@ -22,8 +22,8 @@
  * the method SSMS of the ThinkPad hotkey device, whose path is taken from
  * acpi_ibm(4) (sysctl dev.acpi_ibm.0.%location, e.g.
  * "handle=\_SB_.PCI0.LPC0.EC0_.HKEY"), using acpi_call(8): SSMS to set the
- * mute and its LED (the panel's speaker switch), and GSMS to read the mute
- * right before it (the watcher, after the mute key).
+ * mute and its LED (the panel's speaker switch), GSMS to set the LED to the
+ * mute the firmware has, without changing it (the watcher, after the key).
  */
 
 #include <sys/types.h>
@@ -31,7 +31,6 @@
 #include <sys/wait.h>
 
 #include <err.h>
-#include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -90,13 +89,14 @@ speaker_led(int on)
 }
 
 /*
- * The LED to the mute the controller has now.  SSMS sets the mute too, so
- * the state must be read right before it: one the caller read before pkexec
- * (which takes a while) could undo a mute key pressed meanwhile.  GSMS reads
- * it from the firmware (AUDC(0, 0), mute in bit 0); on the A475 it also sets
- * the LED, on the X1 Carbon only reads, so SSMS follows at once.  Prints the
- * state the LED was set to, for the caller to compare with the mute it sees
- * next.
+ * The LED to the mute the firmware has, never changing the mute.  GSMS reads
+ * the firmware's audio mute (AUDC(0, 0), the mute in bit 0) and, on the
+ * A475, sets the LED to it.  SSMS must not be used for this: it sets the
+ * mute too, and right after a press of the mute key the firmware's state
+ * and the controller's can disagree for a moment, so writing back what was
+ * just read could mute or unmute the speaker on its own (traced on the A475:
+ * quick presses ended in the wrong state).  Prints the state, for the
+ * caller to compare with the mute it sees next.
  */
 static void
 speaker_sync(void)
@@ -104,7 +104,7 @@ speaker_sync(void)
 	char method[300], out[64];
 	char *args[] = { "acpi_call", "-p", method, "-i", "0", NULL };
 	char *env[] = { "PATH=/sbin:/bin:/usr/sbin:/usr/bin", NULL };
-	int fd[2], null, status, on;
+	int fd[2], status;
 	ssize_t n;
 	pid_t pid;
 
@@ -127,13 +127,7 @@ speaker_sync(void)
 	    WEXITSTATUS(status) != 0 || n <= 0)
 		errx(1, "%s %s failed", ACPI_CALL, method);
 	out[n] = '\0';
-	on = (int)(strtol(out, NULL, 0) & 1);
-	printf("%d\n", on);
-	fflush(stdout);
-	/* SSMS's own output would follow ours on the caller's pipe */
-	if ((null = open("/dev/null", O_WRONLY)) >= 0)
-		dup2(null, STDOUT_FILENO);
-	speaker_led(on);			/* does not return */
+	printf("%ld\n", strtol(out, NULL, 0) & 1);
 }
 
 static void
@@ -151,7 +145,8 @@ main(int argc, char *argv[])
 
 	if (argc == 3 && strcmp(argv[1], "speaker") == 0 &&
 	    strcmp(argv[2], "sync") == 0) {
-		speaker_sync();			/* does not return */
+		speaker_sync();
+		return 0;
 	}
 	if (argc != 3 ||
 	    (strcmp(argv[2], "0") != 0 && strcmp(argv[2], "1") != 0))

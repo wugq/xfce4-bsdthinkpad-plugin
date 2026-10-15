@@ -86,8 +86,10 @@
 #define IDLE_MS		2000
 #define DEVD_SOCKET	"/var/run/devd.seqpacket.pipe"
 #define DEVD_RETRY_US	(10 * G_USEC_PER_SEC)
-/* Speaker LED syncs in a row that may disagree with the mute, see poll_once */
+/* Speaker LED syncs in a row that may disagree with the mute, see led_settle */
 #define LED_MISMATCH_MAX	3
+/* How long the speaker mute must stay put before its LED is set */
+#define LED_SETTLE_MS		500
 /*
  * How long after the speaker mute changed the sink is checked once more:
  * where the mute key reaches the desktop the pulseaudio plugin toggles the
@@ -108,6 +110,7 @@ static int last_micmute = -1;
 static int sync_pending;		/* a sink_sync_later() is due */
 static int led_mismatch;		/* syncs in a row whose LED state was
 					   not the mute we saw */
+static guint led_settle_id;		/* the pending led_settle() */
 static gint64 last_change;		/* g_get_monotonic_time() of the last
 					   brightness change or event */
 static guint poll_id;			/* the pending poll_tick() */
@@ -266,10 +269,44 @@ sink_sync_later(gpointer data)
 
 /* ---- the watch loop ----------------------------------------------------- */
 
+/*
+ * Set the speaker mute LED, LED_SETTLE_MS after the last change of the mute.
+ * Not at once: the helper calls into the firmware (GSMS, an SMI), and doing
+ * that while the mute key is being pressed quickly left the firmware's audio
+ * mute and the embedded controller's apart (traced on the A475).
+ *
+ * "sync" (GSMS), not the state we read: the helper never changes the mute,
+ * only the LED (SSMS would set the mute too).  It returns the state the LED
+ * got; if that is not the controller's, look again later, but only a few
+ * times in a row (a ThinkPad whose GSMS means something else would never
+ * agree).
+ */
+static gboolean
+led_settle(gpointer data)
+{
+	int hw, got;
+
+	(void)data;
+	led_settle_id = 0;
+	hw = hw_get_hwmute();
+	got = led("speaker", -1);
+	if (got >= 0 && hw >= 0 && got != hw) {
+		if (++led_mismatch < LED_MISMATCH_MAX)
+			led_settle_id = g_timeout_add(LED_SETTLE_MS,
+			    led_settle, NULL);
+		else if (led_mismatch == LED_MISMATCH_MAX)
+			syslog(LOG_WARNING, "the speaker LED state from GSMS "
+			    "keeps differing from dev.acpi_ibm.0.mute; "
+			    "leaving it");
+	} else
+		led_mismatch = 0;
+	return G_SOURCE_REMOVE;
+}
+
 static void
 poll_once(int first)
 {
-	int b, hw, mic, led_hw;
+	int b, hw, mic;
 	char text[32];
 
 	b = hw_get_brightness();
@@ -287,36 +324,17 @@ poll_once(int first)
 
 	hw = hw_get_hwmute();
 	if (hw >= 0 && hw != last_hwmute) {
-		/*
-		 * "sync" (GSMS, then SSMS), not hw: SSMS sets the mute too, and
-		 * pkexec takes long enough for a quick second press of the
-		 * key to land meanwhile; hw would then undo it.  Remember the
-		 * state the LED got rather than hw: if the key was pressed
-		 * twice meanwhile, they differ, and the next poll syncs again.
-		 */
-		led_hw = led("speaker", -1);
-		/*
-		 * A ThinkPad whose GSMS means something else would never
-		 * agree, and every poll would run pkexec: after a few
-		 * disagreements in a row, go by hw again.
-		 */
-		if (led_hw >= 0 && led_hw != hw) {
-			if (++led_mismatch == LED_MISMATCH_MAX)
-				syslog(LOG_WARNING, "the speaker LED state "
-				    "from GSMS keeps differing from "
-				    "dev.acpi_ibm.0.mute; not syncing again "
-				    "on it");
-			if (led_mismatch >= LED_MISMATCH_MAX)
-				led_hw = -1;
-		} else
-			led_mismatch = 0;
 		/* the sink now, and again in case the plugin was late */
 		sink_sync();
 		if (!sync_pending) {
 			sync_pending = 1;
 			g_timeout_add(MUTE_WAIT_MS, sink_sync_later, NULL);
 		}
-		last_hwmute = led_hw >= 0 ? led_hw : hw;
+		/* the LED once the key has been left alone, see led_settle() */
+		if (led_settle_id != 0)
+			g_source_remove(led_settle_id);
+		led_settle_id = g_timeout_add(LED_SETTLE_MS, led_settle, NULL);
+		last_hwmute = hw;
 	}
 
 	mic = hw_get_micmute();
