@@ -146,6 +146,13 @@ for 3 s; low lights all three):
 | microphone mute | 142 (`G142`) | `0xFED81738` | `MMTS` (`dev.acpi_ibm.0.mic_led`) |
 | Fn Lock | 7 (`GP07`) | `0xFED8151C` | `FNST` |
 
+The power button LED and the red dot on the lid are the EC's, not GPIOs:
+`\_SB.PCI0.LPC0.EC0.LED(n, mode)` writes `n | mode` to EC register `0x0C`;
+n = 0 is the power button, 10 the lid dot (checked); mode 0 off, 128 on,
+192 blinking. `\_SI._SST` sets them for each system state (working: 0 and
+10 on, 7 off), so `_SST(1)` puts them back. Note that `acpi_call -i` reads
+decimal only (`strtol(…, 10)`): `-i 0x80` passes 0.
+
 **The EC is easily kept busy.** Each read of `dev.acpi_ibm.0.mute` is an EC
 transaction. While the mute key is pressed quickly, reads collide with the
 EC's own work: dmesg shows `acpi_ec0: EcCommand: no response to 0x84` (the
