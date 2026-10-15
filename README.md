@@ -116,6 +116,17 @@ up to 2 s late. Without tpmute, or when devd is restarted, it polls every
 200 ms as before, and connects to devd again. Measured on the A475: 0.01 s
 of CPU per minute instead of about 0.15 s.
 
+The watcher then also takes the mute from tpmute (`hw.tpmute.state`) instead
+of reading the embedded controller itself: every read is a transaction with
+the controller, and a controller kept busy while the mute key is pressed
+quickly drops presses (`acpi_ec0: EcCommand: no response to 0x84` in
+dmesg).
+
+On the A475 tpmute also sets the speaker mute LED itself, from the
+controller's mute (`hw.tpmute.led` is 1; -1 on other models), and the
+watcher then leaves the speaker LED alone. The firmware's own way (`GSMS`)
+lags the controller; see [docs/architecture.md](docs/architecture.md).
+
 ## Requirements
 
 - FreeBSD 14 or later (`mixer(3)`, `backlight(9)`)

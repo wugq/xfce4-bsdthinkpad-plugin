@@ -18,6 +18,7 @@ installing and configuring, see the README.
    acpi_ibm(4): dev.acpi_ibm.0.mute,      acpi_call    backlight(9)   OSS   │
    evdev keys, ACPI notify → devd                                  mixers   │
    tpmute (optional kmod, separate project): polls the EC mute ────────────┘
+     (A475: also sets the speaker LED's GPIO)
  firmware / hardware ─────────────────────────────────────────────────────────
    embedded controller (EC): handles the mute and volume keys itself
    BIOS: ACPI methods SSMS/GSMS → SMI → AUDC (audio mute), mute LEDs
@@ -30,7 +31,7 @@ installing and configuring, see the README.
 | `bsdthinkpad-plugin` | the user, in the panel | the controls; `ctl.c` holds the state and requests, `hw.c` touches the hardware (shared with the watcher) |
 | `bsdthinkpad-mute-led` | root, via pkexec + polkit | the only root part; sets a mute LED and accepts nothing else |
 | devd rule + `bsdthinkpad-key` | root | the mic-mute key arrives only as an ACPI event; mutes the microphones |
-| tpmute (optional) | kernel | turns a change of the EC speaker mute into a devd event |
+| tpmute (optional) | kernel | turns a change of the EC speaker mute into a devd event; on the A475 sets the speaker LED |
 | PulseAudio + its plugin | the user | not part of this project: volume, and the speaker mute popup |
 
 ## Rules the design keeps
@@ -58,7 +59,9 @@ installing and configuring, see the README.
 3. At once it sets the PulseAudio sink mute to the EC's; the PulseAudio
    plugin sees the sink change and shows its popup. If the plugin already
    toggled the sink (X1 Carbon) nothing changes and no second popup comes.
-4. Once the mute has stayed put for 0.5 s, the watcher runs
+4. With tpmute on the A475 (`hw.tpmute.led` = 1) tpmute has already set
+   the LED, and the watcher does nothing more. Otherwise, once the mute has
+   stayed put for 0.5 s, the watcher runs
    `pkexec bsdthinkpad-mute-led speaker sync`, which calls `GSMS`: on the
    A475 the firmware sets the LED to its own mute, without changing it.
    (Calling the firmware while the key was pressed quickly left the
@@ -116,14 +119,33 @@ competes with the firmware's.
   writing back a state just read undid presses of the key.
 - `GSMS` called too soon after a press sets the LED to the old state:
   with tpmute polling every 50 ms the LED was often wrong; at 200 ms (plus
-  pkexec) it is right. The LED can not be made faster than the firmware
-  catches up.
+  pkexec) it is right. Through the firmware the LED can not be made faster
+  than the firmware catches up (measured: 130 to 180 ms after the EC).
 - `GSMS` called on every change of a quick series of presses left the EC's
   mute and `AUDC` apart; so within a quick series the LED waits until the
   mute has stayed put for 0.5 s (a single press is synced at once).
 - The microphone has none of this: its mute is the OS's own (the mixers'
   recording levels) and its LED has a method of its own, `MMTS`
   (`dev.acpi_ibm.0.mic_led`), that touches nothing else.
+
+**Setting the LED directly (A475, tpmute):** `G143` is AMD FCH GPIO 143,
+bit 22 (output value) of the 32-bit register at `0xFED81500 + 0x23C`; low
+lights the LED, bit 23 is output enable. Writing that bit lights or clears
+the LED and changes nothing else (checked). tpmute writes it from the EC's
+mute on every poll, so the LED follows the EC within one poll (200 ms) and
+is right as soon as the key is left alone; it shows the EC's mute, which is
+what the speaker does. It does so only when SMBIOS says "ThinkPad A475" and
+the pin is an output; `hw.tpmute.led=0` turns it off.
+
+**The EC is easily kept busy.** Each read of `dev.acpi_ibm.0.mute` is an EC
+transaction. While the mute key is pressed quickly, reads collide with the
+EC's own work: dmesg shows `acpi_ec0: EcCommand: no response to 0x84` (the
+query command) and `GPE query failed`, and presses can be lost. Measured on
+the A475 with quick presses: no errors when nothing reads the EC; many when
+the watcher read it every 30 ms besides tpmute (presses lost); a few with
+tpmute alone at 200 ms. So with tpmute the watcher reads `hw.tpmute.state`
+instead, and the poll stays at 200 ms: the aim is a right final state, not
+the fastest LED.
 
 **Other models:** on the X1 Carbon 3rd gen `SSMS` and `GSMS` only call
 `AUDC`; no LED GPIO is set in ACPI code. Its LED follows the mute key by

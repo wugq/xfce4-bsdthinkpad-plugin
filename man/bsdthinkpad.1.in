@@ -109,6 +109,11 @@ and
 .Cm micmute
 commands and the panel plugin send it after a change, and otherwise only
 every two seconds.
+It then reads the speaker mute from
+.Va hw.tpmute.state
+instead of the embedded controller, and when
+.Va hw.tpmute.led
+is 1 (tpmute sets the LED itself) it does not set the speaker LED.
 .It Fl n
 Do not set the mute LEDs.
 .El

@@ -332,6 +332,11 @@ check_speaker(void)
 	if (speaker.sink_recheck == 0)
 		speaker.sink_recheck = g_timeout_add(SINK_RECHECK_MS,
 		    speaker_sink_recheck, NULL);
+	speaker.last = hw;
+
+	/* tpmute sets the LED itself, from the EC, without the firmware's lag */
+	if (hw_tpmute_led())
+		return;
 
 	/* part of a quick series: wait (again) until the key is left alone */
 	quick = speaker.changed != 0 &&
@@ -344,7 +349,6 @@ check_speaker(void)
 		speaker.led_settle = g_timeout_add(LED_SETTLE_MS, speaker_led,
 		    NULL);
 	speaker.changed = now;
-	speaker.last = hw;
 	if (!quick)
 		speaker_led(NULL);		/* a single press: at once */
 }

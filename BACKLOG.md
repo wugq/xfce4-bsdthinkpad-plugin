@@ -18,6 +18,10 @@ would be a redesign here. Left as the firmware does it.
 
 ## Done (2026-10)
 
+- tpmute sets the A475's speaker LED itself, by its GPIO, from the EC's
+  mute: the firmware's `GSMS` lagged the EC by 130 to 180 ms. With tpmute
+  the watcher reads the mute from it instead of the EC (quick presses with
+  more EC reads made the EC drop presses).
 - The X1 Carbon 3rd gen's speaker LED follows the mute key by itself
   (checked with the watcher stopped: single presses and ~45 quick presses,
   the LED right each time). There `GSMS` only reads, so the watcher's

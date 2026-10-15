@@ -23,7 +23,8 @@ int	hw_get_brightness(void);
 int	hw_set_brightness(int value);
 
 /*
- * Speaker mute done by the ThinkPad embedded controller: 0/1, acpi_ibm(4).
+ * Speaker mute done by the ThinkPad embedded controller: 0/1, acpi_ibm(4),
+ * or tpmute's copy of it when that module is loaded.
  * Setting it goes through the root helper (hw_set_led("speaker"): ACPI
  * method SSMS, which mutes and sets the LED together).
  */
@@ -68,5 +69,8 @@ void	hw_nudge_watcher(void);
 
 /* The tpmute kernel module is loaded (it reports the speaker mute to devd) */
 int	hw_have_tpmute(void);
+
+/* tpmute sets the speaker mute LED itself (hw.tpmute.led = 1, A475 only) */
+int	hw_tpmute_led(void);
 
 #endif

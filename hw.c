@@ -76,6 +76,15 @@ hw_get_hwmute(void)
 	int val;
 	size_t len = sizeof(val);
 
+	/*
+	 * tpmute already polls the EC: take its copy, so that the EC is not
+	 * read twice as often (each read is an EC transaction, and a busy EC
+	 * drops its own events: "EcCommand: no response").
+	 */
+	if (sysctlbyname("hw.tpmute.state", &val, &len, NULL, 0) == 0 &&
+	    val >= 0)
+		return val != 0;
+	len = sizeof(val);
 	if (sysctlbyname("dev.acpi_ibm.0.mute", &val, &len, NULL, 0) != 0)
 		return -1;
 	return val != 0;
@@ -327,4 +336,14 @@ hw_have_tpmute(void)
 	size_t len = 0;
 
 	return sysctlbyname("hw.tpmute.state", NULL, &len, NULL, 0) == 0;
+}
+
+int
+hw_tpmute_led(void)
+{
+	int v;
+	size_t len = sizeof(v);
+
+	return sysctlbyname("hw.tpmute.led", &v, &len, NULL, 0) == 0 &&
+	    v == 1;
 }
