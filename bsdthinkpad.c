@@ -85,8 +85,9 @@
 #define SINK_RECHECK_MS	150		/* the sink once more after a speaker
 					   mute change: the pulseaudio plugin
 					   may toggle it a moment late */
-#define LED_SETTLE_MS	500		/* the speaker mute must stay put this
-					   long before its LED is set */
+#define LED_SETTLE_MS	500		/* within this of the last change, the
+					   speaker LED waits until the mute
+					   has stayed put this long */
 #define LED_MISMATCH_MAX 3		/* LED syncs in a row that may disagree
 					   with the mute, see speaker_led() */
 #define DEVD_SOCKET	"/var/run/devd.seqpacket.pipe"
@@ -108,8 +109,10 @@ static struct {
 	int	 last;			/* dev.acpi_ibm.0.mute */
 	guint	 sink_recheck;		/* pending speaker_sink_recheck() */
 	guint	 led_settle;		/* pending speaker_led() */
+	gint64	 changed;		/* g_get_monotonic_time() of the last
+					   change */
 	int	 led_mismatch;		/* LED syncs in a row that disagreed */
-} speaker = { -1, 0, 0, 0 };
+} speaker = { -1, 0, 0, 0, 0 };
 
 /* When to look next, see next_interval() */
 static struct {
@@ -262,11 +265,13 @@ check_brightness(int first)
  *   unmute only the controller, and a quick double press can leave the two
  *   apart; where it does not (the A475) the sink never follows on its own.
  *
- * - the LED, LED_SETTLE_MS after the last change.  The helper calls into the
- *   firmware (GSMS, an SMI); doing that while the key was being pressed
- *   quickly left the firmware's audio mute and the controller's apart
- *   (traced on the A475).  "sync" (GSMS), never SSMS: SSMS sets the mute
- *   too, and writing back a state just read could undo a press.
+ * - the LED: at once after a single press, but while the key is pressed
+ *   quickly (a change within LED_SETTLE_MS of the one before) only once the
+ *   mute has stayed put for LED_SETTLE_MS.  The helper calls into the
+ *   firmware (GSMS, an SMI); doing that on every change of a quick series
+ *   left the firmware's audio mute and the controller's apart (traced on the
+ *   A475).  "sync" (GSMS), never SSMS: SSMS sets the mute too, and writing
+ *   back a state just read could undo a press.
  */
 
 static void
@@ -318,6 +323,8 @@ static void
 check_speaker(void)
 {
 	int hw = hw_get_hwmute();
+	gint64 now = g_get_monotonic_time();
+	gboolean quick;
 
 	if (hw < 0 || hw == speaker.last)
 		return;
@@ -325,11 +332,21 @@ check_speaker(void)
 	if (speaker.sink_recheck == 0)
 		speaker.sink_recheck = g_timeout_add(SINK_RECHECK_MS,
 		    speaker_sink_recheck, NULL);
-	/* a further change restarts the wait */
-	if (speaker.led_settle != 0)
+
+	/* part of a quick series: wait (again) until the key is left alone */
+	quick = speaker.changed != 0 &&
+	    now - speaker.changed < LED_SETTLE_MS * 1000;
+	if (speaker.led_settle != 0) {
 		g_source_remove(speaker.led_settle);
-	speaker.led_settle = g_timeout_add(LED_SETTLE_MS, speaker_led, NULL);
+		speaker.led_settle = 0;
+	}
+	if (quick)
+		speaker.led_settle = g_timeout_add(LED_SETTLE_MS, speaker_led,
+		    NULL);
+	speaker.changed = now;
 	speaker.last = hw;
+	if (!quick)
+		speaker_led(NULL);		/* a single press: at once */
 }
 
 /* ---- microphone mute: the LED and a notification ------------------------ */
