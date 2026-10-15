@@ -4,14 +4,7 @@ Open ideas and known issues, newest first within each section.
 
 ## Open
 
-### Speaker LED on the X1 Carbon
-
-The watcher now sets the speaker LED with `GSMS` only (never `SSMS`). On the
-A475 `GSMS` sets the LED; on the X1 Carbon 3rd gen its DSDT shows `GSMS` only
-reading (`Return (\AUDC (0x00, 0x00))`). Check whether the X1 Carbon's LED
-follows the mute key by itself; if not, it needs another way (e.g. `SSMS`
-once the key has been left alone, which is when it can no longer undo a
-press).
+Nothing at the moment.
 
 ## Decided not to do
 
@@ -25,6 +18,10 @@ would be a redesign here. Left as the firmware does it.
 
 ## Done (2026-10)
 
+- The X1 Carbon 3rd gen's speaker LED follows the mute key by itself
+  (checked with the watcher stopped: single presses and ~45 quick presses,
+  the LED right each time). There `GSMS` only reads, so the watcher's
+  `speaker sync` is harmless and nothing else is needed.
 - The watcher's microphone check costs ~76 us instead of ~600 us (two
   ioctls per mixer, the mixer count kept for 10 s); its CPU time fell to a
   third.

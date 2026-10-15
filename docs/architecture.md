@@ -126,9 +126,10 @@ competes with the firmware's.
   (`dev.acpi_ibm.0.mic_led`), that touches nothing else.
 
 **Other models:** on the X1 Carbon 3rd gen `SSMS` and `GSMS` only call
-`AUDC`; no LED GPIO is set in ACPI code, so there the LED is presumably
-set inside the BIOS (SMM). Whether its LED follows the mute key by itself
-is not checked yet (see BACKLOG). This is a difference of firmware between
+`AUDC`; no LED GPIO is set in ACPI code. Its LED follows the mute key by
+itself, also on quick presses (checked with the watcher stopped), so the
+firmware sets it out of the OS's sight, presumably in SMM. There `speaker
+sync` only reads and changes nothing. This is a difference of firmware between
 models, not known to follow the CPU vendor: two machines say nothing about
 AMD and Intel ThinkPads in general.
 
