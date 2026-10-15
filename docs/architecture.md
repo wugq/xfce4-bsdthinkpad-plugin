@@ -83,6 +83,55 @@ unmutes the speaker on the volume keys; the watcher then unmutes the sink.
 speaker switch runs the helper with `SSMS` (meant to change the mute); the
 microphone switch sets the recording levels and the LED.
 
+## The speaker mute inside the firmware
+
+What the A475's DSDT shows (`acpidump -dt`), and what follows from it. The
+firmware's own code (the EC's, and the BIOS's in SMM) can not be read, so
+part of this is inferred; it is marked so.
+
+**Seen in the DSDT (A475):**
+
+- None of the 62 EC query methods (`_Qxx`) handles the mute key (hotkey
+  `0x1017` appears nowhere). Pressing it runs no ACPI code at all: the EC and
+  the BIOS handle it out of the OS's sight.
+- `SSMS(x)` sets the LED's GPIO (`G143`) and then calls `AUDC(1, x)`;
+  `GSMS()` calls `AUDC(0, 0)`, sets `G143` from the result and returns it.
+  `AUDC` is an SMI: `SMI()` takes a lock, writes `0xF5` to the APM port
+  (the CPU leaves the OS for the BIOS's SMM code), and while the BIOS
+  reports busy writes it again every 1 ms.
+- The only other caller of `AUDC` is the wake method: after S3 the BIOS
+  reads `AUDC` and sets `G143` from it. So nothing sets the LED on its own;
+  even the firmware sets it from `AUDC`.
+
+**Inferred (not visible):** the speaker mute exists twice. The EC flips
+its bit (register `0x30`, bit 6, what `dev.acpi_ibm.0.mute` and tpmute
+read) and cuts the amplifier at once; the BIOS's state, `AUDC`, follows a
+moment later through some path of its own (most likely an SMI raised by
+the EC). Until it has, `GSMS` returns the old state and an SMI of ours
+competes with the firmware's.
+
+**What that means for the watcher, as measured:**
+
+- `SSMS` sets the mute as well as the LED, so the watcher never calls it:
+  writing back a state just read undid presses of the key.
+- `GSMS` called too soon after a press sets the LED to the old state:
+  with tpmute polling every 50 ms the LED was often wrong; at 200 ms (plus
+  pkexec) it is right. The LED can not be made faster than the firmware
+  catches up.
+- `GSMS` called on every change of a quick series of presses left the EC's
+  mute and `AUDC` apart; so within a quick series the LED waits until the
+  mute has stayed put for 0.5 s (a single press is synced at once).
+- The microphone has none of this: its mute is the OS's own (the mixers'
+  recording levels) and its LED has a method of its own, `MMTS`
+  (`dev.acpi_ibm.0.mic_led`), that touches nothing else.
+
+**Other models:** on the X1 Carbon 3rd gen `SSMS` and `GSMS` only call
+`AUDC`; no LED GPIO is set in ACPI code, so there the LED is presumably
+set inside the BIOS (SMM). Whether its LED follows the mute key by itself
+is not checked yet (see BACKLOG). This is a difference of firmware between
+models, not known to follow the CPU vendor: two machines say nothing about
+AMD and Intel ThinkPads in general.
+
 ## When the watcher looks
 
 All in `next_interval()` in `bsdthinkpad.c`:
