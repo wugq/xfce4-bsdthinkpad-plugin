@@ -4,7 +4,14 @@ Open ideas and known issues, newest first within each section.
 
 ## Open
 
-Nothing at the moment.
+### Speaker LED on the X1 Carbon
+
+The watcher now sets the speaker LED with `GSMS` only (never `SSMS`). On the
+A475 `GSMS` sets the LED; on the X1 Carbon 3rd gen its DSDT shows `GSMS` only
+reading (`Return (\AUDC (0x00, 0x00))`). Check whether the X1 Carbon's LED
+follows the mute key by itself; if not, it needs another way (e.g. `SSMS`
+once the key has been left alone, which is when it can no longer undo a
+press).
 
 ## Decided not to do
 
@@ -29,11 +36,13 @@ would be a redesign here. Left as the firmware does it.
   test machine's firmware sends a devd event for the mute key itself
   (checked on the A475 and the X1 Carbon: acpi_ibm would pass notify
   0x15-0x17 on, but they are never raised), hence the kernel module.
-- Speaker LED: `bsdthinkpad-mute-led speaker sync` reads the mute with
-  `GSMS` right before `SSMS` (which sets the mute too), and the watcher
-  keeps the state the LED got; quick double presses no longer leave the LED
-  or the mute wrong. A model whose `GSMS` disagrees with the mute three
-  times in a row is no longer re-synced on it.
+- Speaker LED: the watcher no longer calls `SSMS` (it sets the mute too,
+  and writing back a just-read state could undo a key press); `speaker
+  sync` calls only `GSMS`, which on the A475 sets the LED to the firmware's
+  mute, and the watcher calls it once the mute has stayed put for 0.5 s
+  (firmware calls during quick presses left the firmware's mute and the
+  controller's apart). If `GSMS` disagrees with the mute it looks again, at
+  most three times in a row.
 - Panel sliders are dragged by their menu item itself: the PCM slider would
   not move until the brightness slider had been dragged once.
 - A PCM slider in the panel again: PulseAudio writes `pcm` with every volume

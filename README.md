@@ -344,11 +344,14 @@ follows the same pattern as `xfce4-power-manager` and its
 
 - a tiny helper, `bsdthinkpad-mute-led speaker|mic 0|1` (and `speaker sync`),
   is the only part that runs as root. It accepts nothing else: for `speaker`
-  it calls only the method `SSMS` of the ThinkPad hotkey device, so it cannot
-  be used to call any other ACPI method; for `mic` it sets only
-  `dev.acpi_ibm.0.mic_led`. `SSMS` sets the speaker mute as well as its LED,
-  so the watcher uses `speaker sync`: the helper reads the mute right before
-  `SSMS`, and a quick second press of the key during pkexec is not undone;
+  it calls only the methods `SSMS` (0/1) and `GSMS` (`sync`) of the ThinkPad
+  hotkey device, so it cannot be used to call any other ACPI method; for
+  `mic` it sets only `dev.acpi_ibm.0.mic_led`. `SSMS` sets the speaker mute
+  as well as its LED, so the watcher never uses it: it uses `speaker sync`,
+  `GSMS`, which on the A475 sets the LED to the firmware's mute without
+  changing it, and only once the mute key has been left alone for 0.5 s
+  (calling into the firmware while the key was pressed quickly left the
+  firmware's mute and the embedded controller's apart);
 - bsdthinkpad (at start, and when the microphone mute changes) and the panel
   plugin run it with `pkexec`; devd runs it directly for the mic-mute key;
 - the polkit policy `org.bsdthinkpad.mute-led` allows the user at the console

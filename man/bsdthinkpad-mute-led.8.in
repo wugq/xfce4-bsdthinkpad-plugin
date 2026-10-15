@@ -43,11 +43,15 @@ the speaker in hardware, so callers pass the state that
 already has.
 With
 .Cm sync
-the helper reads that state itself, right before
-.Dv SSMS :
-a state read by the caller before
-.Xr pkexec 1
-could undo a mute key pressed again meanwhile.
+it calls
+.Dv GSMS
+instead, which reads the firmware's speaker mute and, on the A475, sets the
+LED to it without changing the mute, and prints that state
+.Pq Cm 0 No or Cm 1 .
+.Xr bsdthinkpad 1
+uses this after the mute key: writing a state back with
+.Dv SSMS
+could undo a key pressed again meanwhile.
 .It Cm mic
 Sets the sysctl
 .Va dev.acpi_ibm.0.mic_led .
