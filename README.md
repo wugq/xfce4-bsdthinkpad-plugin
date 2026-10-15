@@ -432,6 +432,9 @@ interface and should work on other FreeBSD laptops too (untested).
 
 ## Source layout
 
+How the parts work together and what happens on each key:
+[docs/architecture.md](docs/architecture.md).
+
 | File | Layer | |
 |---|---|---|
 | `hw.c`, `hw.h` | hardware | backlight(9), mixer(3), acpi_ibm(4) sysctls; no GLib, no UI |
