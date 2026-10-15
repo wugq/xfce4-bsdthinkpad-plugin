@@ -42,7 +42,7 @@
  *   bsdthinkpad [-n] [-i ms]          watch and notify (run from autostart)
  *   bsdthinkpad brightness [+|-]N     change brightness, e.g. +10, -10, 50
  *   bsdthinkpad pcm [+|-]N            change the OSS "pcm" level of the default
- *                               mixer (pulseaudio does not manage it)
+ *                               mixer (pulseaudio restores only "vol" at start)
  *   bsdthinkpad micmute [on|off|toggle]
  *                               show or change the microphone mute (used
  *                               by the devd rule of the mic-mute key)
@@ -71,58 +71,64 @@
 #define PACTL	"/usr/local/bin/pactl"
 #endif
 
-#define TIMEOUT_MS	2000		/* as the pulseaudio plugin's */
-/*
- * After a brightness change, poll fast for a while, so that the notification's
- * bar follows a key held down or the panel icon scrolled step by step instead
- * of jumping several steps at a time.
- */
-#define FAST_MS		30
-#define FAST_FOR_US	(2 * G_USEC_PER_SEC)
-/*
- * With tpmute and devd: the poll is only a safety net for changes nobody
- * tells us about (another program's mixer or backlight change)
- */
-#define IDLE_MS		2000
+/* ---- tunables ----------------------------------------------------------- */
+
+#define TIMEOUT_MS	2000		/* notifications, as the pulseaudio
+					   plugin's */
+#define FAST_MS		30		/* poll this often for FAST_FOR_US */
+#define FAST_FOR_US	(2 * G_USEC_PER_SEC)	/* after a change or an event,
+					   so a brightness bar follows a key
+					   held down step by step */
+#define IDLE_MS		2000		/* with tpmute and devd: the poll is
+					   only a safety net for changes no
+					   one tells us about */
+#define SINK_RECHECK_MS	150		/* the sink once more after a speaker
+					   mute change: the pulseaudio plugin
+					   may toggle it a moment late */
+#define LED_SETTLE_MS	500		/* the speaker mute must stay put this
+					   long before its LED is set */
+#define LED_MISMATCH_MAX 3		/* LED syncs in a row that may disagree
+					   with the mute, see speaker_led() */
 #define DEVD_SOCKET	"/var/run/devd.seqpacket.pipe"
 #define DEVD_RETRY_US	(10 * G_USEC_PER_SEC)
-/* Speaker LED syncs in a row that may disagree with the mute, see led_settle */
-#define LED_MISMATCH_MAX	3
-/* How long the speaker mute must stay put before its LED is set */
-#define LED_SETTLE_MS		500
+
+/* ---- state -------------------------------------------------------------- */
+
+static int interval_ms = 200;		/* -i: how often to poll */
+static int drive_leds = 1;		/* -n clears it: no mute LEDs */
+
+/* Each value watched; last = last seen, -1 = unknown / not available */
+static struct {
+	int		 last;
+	NotifyNotification *n;		/* updated in place, so a new one
+					   replaces the old */
+} brightness = { -1, NULL }, mic = { -1, NULL };
+
+static struct {
+	int	 last;			/* dev.acpi_ibm.0.mute */
+	guint	 sink_recheck;		/* pending speaker_sink_recheck() */
+	guint	 led_settle;		/* pending speaker_led() */
+	int	 led_mismatch;		/* LED syncs in a row that disagreed */
+} speaker = { -1, 0, 0, 0 };
+
+/* When to look next, see next_interval() */
+static struct {
+	guint	 poll;			/* pending poll_tick() */
+	gint64	 fast_until;		/* g_get_monotonic_time() */
+	int	 devd_fd;		/* connection to devd, or -1 */
+	gint64	 devd_tried;		/* last connection attempt */
+} sched = { 0, 0, -1, 0 };
+
+/* Failures already logged (once each, until it works again) */
+static int led_warned, sink_warned;
+
+/* ---- what the watcher acts on: LEDs, PulseAudio, notifications ---------- */
+
 /*
- * How long after the speaker mute changed the sink is checked once more:
- * where the mute key reaches the desktop the pulseaudio plugin toggles the
- * sink itself, usually within a few ms of the embedded controller (so before
- * we see the change), but not always
- */
-#define MUTE_WAIT_MS	150
-
-static int interval_ms = 200;		/* how often to poll */
-static int drive_leds = 1;		/* set the mute LEDs (via pkexec) */
-static int led_warned;			/* reported a helper failure */
-static int sink_warned;			/* reported a pactl failure */
-
-/* Last seen values; -1 = unknown / not available */
-static int last_brightness = -1;
-static int last_hwmute = -1;
-static int last_micmute = -1;
-static int sync_pending;		/* a sink_sync_later() is due */
-static int led_mismatch;		/* syncs in a row whose LED state was
-					   not the mute we saw */
-static guint led_settle_id;		/* the pending led_settle() */
-static gint64 last_change;		/* g_get_monotonic_time() of the last
-					   brightness change or event */
-static guint poll_id;			/* the pending poll_tick() */
-static int devd_fd = -1;		/* connection to devd, or -1 */
-static gint64 devd_tried;		/* last connection attempt */
-
-/* One notification per kind, updated in place so new ones replace old ones */
-static NotifyNotification *n_brightness, *n_mic;
-
-/*
- * Set a mute LED.  On failure warn once and keep trying at the next change:
- * the cause may be passing (e.g. polkit or PAM, see README).
+ * Set a mute LED through the root helper; with on = -1 ("sync", speaker only)
+ * the helper sets it to the firmware's mute and returns that state.  On
+ * failure warn once and keep trying at the next change: the cause may be
+ * passing (e.g. polkit or PAM, see README).
  */
 static int
 led(const char *which, int on)
@@ -222,34 +228,49 @@ show(NotifyNotification **n, const char *summary, const char *icon,
 	}
 }
 
-/*
- * The microphone mute changed: its state only, no bar.
- */
-static void
-show_mute(NotifyNotification **n, const char *what, int muted,
-    const char *icon_base)
-{
-	char summary[32], icon[64];
+/* ---- brightness: a notification with a bar ------------------------------ */
 
-	snprintf(summary, sizeof(summary), "%s %s", what,
-	    muted ? "muted" : "on");
-	snprintf(icon, sizeof(icon), "%s-%s-symbolic", icon_base,
-	    muted ? "muted" : "high");
-	show(n, summary, icon, -1);
+static void
+check_brightness(int first)
+{
+	char text[32];
+	int b = hw_get_brightness();
+
+	if (b < 0 || b == brightness.last)
+		return;
+	if (!first) {
+		/* As the power manager words it; no theme has per-level
+		   brightness icons */
+		snprintf(text, sizeof(text), "Brightness: %d%%", b);
+		show(&brightness.n, text, "display-brightness-symbolic", b);
+		/* the key may still be held down: follow it closely */
+		sched.fast_until = g_get_monotonic_time() + FAST_FOR_US;
+	}
+	brightness.last = b;
 }
 
+/* ---- speaker mute: the PulseAudio sink, then the LED -------------------- */
+
 /*
- * Put the PulseAudio sink mute in step with the embedded controller's.  The
- * two are independent: the controller mutes the speaker in hardware, the
- * sink is what the pulseaudio plugin shows.  Where the mute key reaches the
- * desktop (the X1 Carbon) the plugin toggles the sink with the controller,
- * but the volume keys unmute only the controller, and a quick double press
- * can leave the two apart; where it does not (the A475) the sink never
- * follows on its own.  Setting it shows the speaker mute through the plugin
- * on every ThinkPad, so bsdthinkpad has no speaker popup of its own.
+ * The embedded controller mutes the speaker itself.  The watcher only makes
+ * the rest follow, and never changes the mute:
+ *
+ * - the PulseAudio sink mute, at once (and once more SINK_RECHECK_MS later):
+ *   the pulseaudio plugin shows the sink, so setting it is what shows the
+ *   speaker mute, on every ThinkPad.  Where the mute key reaches the desktop
+ *   (the X1 Carbon) the plugin toggles the sink itself, but the volume keys
+ *   unmute only the controller, and a quick double press can leave the two
+ *   apart; where it does not (the A475) the sink never follows on its own.
+ *
+ * - the LED, LED_SETTLE_MS after the last change.  The helper calls into the
+ *   firmware (GSMS, an SMI); doing that while the key was being pressed
+ *   quickly left the firmware's audio mute and the controller's apart
+ *   (traced on the A475).  "sync" (GSMS), never SSMS: SSMS sets the mute
+ *   too, and writing back a state just read could undo a press.
  */
+
 static void
-sink_sync(void)
+speaker_sink_sync(void)
 {
 	int hw = hw_get_hwmute(), sink = sink_muted();
 
@@ -257,118 +278,124 @@ sink_sync(void)
 		set_sink_mute(hw);
 }
 
-/* The second look, MUTE_WAIT_MS after the change */
 static gboolean
-sink_sync_later(gpointer data)
+speaker_sink_recheck(gpointer data)
 {
 	(void)data;
-	sync_pending = 0;
-	sink_sync();
+	speaker.sink_recheck = 0;
+	speaker_sink_sync();
 	return G_SOURCE_REMOVE;
 }
 
-/* ---- the watch loop ----------------------------------------------------- */
-
 /*
- * Set the speaker mute LED, LED_SETTLE_MS after the last change of the mute.
- * Not at once: the helper calls into the firmware (GSMS, an SMI), and doing
- * that while the mute key is being pressed quickly left the firmware's audio
- * mute and the embedded controller's apart (traced on the A475).
- *
- * "sync" (GSMS), not the state we read: the helper never changes the mute,
- * only the LED (SSMS would set the mute too).  It returns the state the LED
- * got; if that is not the controller's, look again later, but only a few
- * times in a row (a ThinkPad whose GSMS means something else would never
- * agree).
+ * The helper returns the state the LED got; if that is not the controller's,
+ * look again later, but only a few times in a row (a ThinkPad whose GSMS
+ * means something else would never agree).
  */
 static gboolean
-led_settle(gpointer data)
+speaker_led(gpointer data)
 {
 	int hw, got;
 
 	(void)data;
-	led_settle_id = 0;
+	speaker.led_settle = 0;
 	hw = hw_get_hwmute();
 	got = led("speaker", -1);
 	if (got >= 0 && hw >= 0 && got != hw) {
-		if (++led_mismatch < LED_MISMATCH_MAX)
-			led_settle_id = g_timeout_add(LED_SETTLE_MS,
-			    led_settle, NULL);
-		else if (led_mismatch == LED_MISMATCH_MAX)
+		if (++speaker.led_mismatch < LED_MISMATCH_MAX)
+			speaker.led_settle = g_timeout_add(LED_SETTLE_MS,
+			    speaker_led, NULL);
+		else if (speaker.led_mismatch == LED_MISMATCH_MAX)
 			syslog(LOG_WARNING, "the speaker LED state from GSMS "
 			    "keeps differing from dev.acpi_ibm.0.mute; "
 			    "leaving it");
 	} else
-		led_mismatch = 0;
+		speaker.led_mismatch = 0;
 	return G_SOURCE_REMOVE;
 }
 
 static void
-poll_once(int first)
+check_speaker(void)
 {
-	int b, hw, mic;
-	char text[32];
+	int hw = hw_get_hwmute();
 
-	b = hw_get_brightness();
-	if (b >= 0 && b != last_brightness) {
-		if (!first) {
-			/* As the power manager words it */
-			snprintf(text, sizeof(text), "Brightness: %d%%", b);
-			/* No theme has per-level brightness icons */
-			show(&n_brightness, text, "display-brightness-symbolic",
-			    b);
-			last_change = g_get_monotonic_time();
-		}
-		last_brightness = b;
-	}
+	if (hw < 0 || hw == speaker.last)
+		return;
+	speaker_sink_sync();
+	if (speaker.sink_recheck == 0)
+		speaker.sink_recheck = g_timeout_add(SINK_RECHECK_MS,
+		    speaker_sink_recheck, NULL);
+	/* a further change restarts the wait */
+	if (speaker.led_settle != 0)
+		g_source_remove(speaker.led_settle);
+	speaker.led_settle = g_timeout_add(LED_SETTLE_MS, speaker_led, NULL);
+	speaker.last = hw;
+}
 
-	hw = hw_get_hwmute();
-	if (hw >= 0 && hw != last_hwmute) {
-		/* the sink now, and again in case the plugin was late */
-		sink_sync();
-		if (!sync_pending) {
-			sync_pending = 1;
-			g_timeout_add(MUTE_WAIT_MS, sink_sync_later, NULL);
-		}
-		/* the LED once the key has been left alone, see led_settle() */
-		if (led_settle_id != 0)
-			g_source_remove(led_settle_id);
-		led_settle_id = g_timeout_add(LED_SETTLE_MS, led_settle, NULL);
-		last_hwmute = hw;
-	}
+/* ---- microphone mute: the LED and a notification ------------------------ */
 
-	mic = hw_get_micmute();
-	if (mic >= 0 && mic != last_micmute) {
-		led("mic", mic);
-		if (!first)
-			show_mute(&n_mic, "Microphone", mic,
-			    "microphone-sensitivity");
-		last_micmute = mic;
+static void
+check_mic(int first)
+{
+	char summary[32], icon[64];
+	int m = hw_get_micmute();
+
+	if (m < 0 || m == mic.last)
+		return;
+	led("mic", m);
+	if (!first) {
+		/* Its state only, no bar */
+		snprintf(summary, sizeof(summary), "Microphone %s",
+		    m ? "muted" : "on");
+		snprintf(icon, sizeof(icon),
+		    "microphone-sensitivity-%s-symbolic", m ? "muted" : "high");
+		show(&mic.n, summary, icon, -1);
 	}
+	mic.last = m;
+}
+
+/* first: learn the state at start, notifying nothing */
+static void
+check_all(int first)
+{
+	check_brightness(first);
+	check_speaker();
+	check_mic(first);
+}
+
+/* ---- when to look: polling, devd, SIGWINCH ------------------------------ */
+
+/*
+ * None of the values sends an event of its own, so the watcher polls.  How
+ * often:
+ *   - FAST_MS for a while after a change or an event: a key held down;
+ *   - IDLE_MS when the tpmute kernel module is loaded and devd is connected:
+ *     the speaker mute and the mic-mute key then come as devd events, and
+ *     "bsdthinkpad brightness", micmute and the panel plugin send SIGWINCH;
+ *     the poll is left only for changes made by other programs;
+ *   - else -i ms (200).
+ */
+static guint
+next_interval(void)
+{
+	if (g_get_monotonic_time() < sched.fast_until)
+		return FAST_MS;
+	if (sched.devd_fd >= 0 && hw_have_tpmute())
+		return IDLE_MS;
+	return (guint)interval_ms;
 }
 
 static void devd_connect(void);
 
-/*
- * Poll, then come back: soon after a brightness change or an event (a key
- * held down, the bar following step by step); else after -i ms, or after
- * IDLE_MS when tpmute and devd tell us about the speaker mute.
- */
 static gboolean
 poll_tick(gpointer data)
 {
-	guint ms = (guint)interval_ms;
-
 	(void)data;
-	poll_id = 0;
-	poll_once(0);
-	if (devd_fd < 0)
+	sched.poll = 0;
+	check_all(0);
+	if (sched.devd_fd < 0)
 		devd_connect();
-	if (devd_fd >= 0 && hw_have_tpmute())
-		ms = IDLE_MS;
-	if (g_get_monotonic_time() - last_change < FAST_FOR_US && ms > FAST_MS)
-		ms = FAST_MS;
-	poll_id = g_timeout_add(ms, poll_tick, NULL);
+	sched.poll = g_timeout_add(next_interval(), poll_tick, NULL);
 	return G_SOURCE_REMOVE;
 }
 
@@ -378,20 +405,20 @@ poll_tick(gpointer data)
  * mutes the microphone, so the change may land a moment after the event.
  */
 static void
-kick(void)
+look_now(void)
 {
-	last_change = g_get_monotonic_time();
-	if (poll_id != 0)
-		g_source_remove(poll_id);
+	sched.fast_until = g_get_monotonic_time() + FAST_FOR_US;
+	if (sched.poll != 0)
+		g_source_remove(sched.poll);
 	poll_tick(NULL);
 }
 
 /* "bsdthinkpad brightness", micmute or the panel plugin changed something */
 static gboolean
-on_nudge(gpointer data)
+on_sigwinch(gpointer data)
 {
 	(void)data;
-	kick();
+	look_now();
 	return G_SOURCE_CONTINUE;
 }
 
@@ -409,19 +436,16 @@ on_devd(gint fd, GIOCondition cond, gpointer data)
 		/* tpmute's speaker mute, the mic-mute key, other hotkeys */
 		if (strstr(buf, "system=ACPI") != NULL &&
 		    strstr(buf, "subsystem=IBM") != NULL)
-			kick();
+			look_now();
 		return G_SOURCE_CONTINUE;
 	}
 	/* devd went away (restarted): poll as before, connect again later */
 	close(fd);
-	devd_fd = -1;
+	sched.devd_fd = -1;
 	return G_SOURCE_REMOVE;
 }
 
-/*
- * Connect to devd, at most every DEVD_RETRY_US; without it (or without
- * tpmute) the watcher just polls every -i ms as always.
- */
+/* Connect to devd, at most every DEVD_RETRY_US */
 static void
 devd_connect(void)
 {
@@ -429,9 +453,9 @@ devd_connect(void)
 	gint64 now = g_get_monotonic_time();
 	int fd;
 
-	if (devd_tried != 0 && now - devd_tried < DEVD_RETRY_US)
+	if (sched.devd_tried != 0 && now - sched.devd_tried < DEVD_RETRY_US)
 		return;
-	devd_tried = now;
+	sched.devd_tried = now;
 	if ((fd = socket(PF_LOCAL, SOCK_SEQPACKET | SOCK_CLOEXEC, 0)) < 0)
 		return;
 	memset(&sun, 0, sizeof(sun));
@@ -441,9 +465,11 @@ devd_connect(void)
 		close(fd);
 		return;
 	}
-	devd_fd = fd;
+	sched.devd_fd = fd;
 	g_unix_fd_add(fd, G_IO_IN | G_IO_HUP | G_IO_ERR, on_devd, NULL);
 }
+
+/* ---- start -------------------------------------------------------------- */
 
 /*
  * ConsoleKit, and so polkit, needs to read our environment through
@@ -483,11 +509,11 @@ watch(void)
 		check_env_readable();
 
 	/* Learn the current state (and set the LEDs) without notifying */
-	poll_once(1);
+	check_all(1);
 
-	g_unix_signal_add(SIGWINCH, on_nudge, NULL);
+	g_unix_signal_add(SIGWINCH, on_sigwinch, NULL);
 	devd_connect();
-	poll_id = g_timeout_add((guint)interval_ms, poll_tick, NULL);
+	sched.poll = g_timeout_add(next_interval(), poll_tick, NULL);
 	loop = g_main_loop_new(NULL, FALSE);
 	g_main_loop_run(loop);
 }
