@@ -31,7 +31,7 @@ installing and configuring, see the README.
 | `bsdthinkpad-plugin` | the user, in the panel | the controls; `ctl.c` holds the state and requests, `hw.c` touches the hardware (shared with the watcher) |
 | `bsdthinkpad-mute-led` | root, via pkexec + polkit | the only root part; sets a mute LED and accepts nothing else |
 | devd rule + `bsdthinkpad-key` | root | the mic-mute key arrives only as an ACPI event; mutes the microphones |
-| tpmute (optional) | kernel | turns a change of the EC speaker mute into a devd event; on the A475 sets the speaker LED |
+| [tpmute](https://github.com/wugq/tpmute-kmod) (optional) | kernel | turns a change of the EC speaker mute into a devd event; on the A475 sets the speaker LED |
 | PulseAudio + its plugin | the user | not part of this project: volume, and the speaker mute popup |
 
 ## Rules the design keeps

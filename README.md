@@ -97,8 +97,9 @@ that.
 
 #### Optional: the tpmute kernel module
 
-The speaker mute is the one value nothing else can report. **tpmute**, a
-small kernel module that is not part of this package, polls the embedded
+The speaker mute is the one value nothing else can report.
+**[tpmute](https://github.com/wugq/tpmute-kmod)**, a small kernel module that
+is not part of this package (it must be built for the running kernel), polls the embedded
 controller's mute in the kernel (a kernel thread costs far less than waking a
 process) and sends a devd event when it changes:
 
